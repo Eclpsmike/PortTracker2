@@ -1,0 +1,421 @@
+{
+  "kind": "porttracker-facility",
+  "schemaVersion": 1,
+  "id": "sample-floor-1",
+  "building": "Building A",
+  "floor": "Floor 1",
+  "background": {
+    "src": "/facility/sample-floorplan.svg",
+    "name": "Example office floor plan",
+    "width": 1100,
+    "height": 650
+  },
+  "calibration": null,
+  "layers": [
+    {
+      "id": "rooms",
+      "name": "Rooms / Locations",
+      "color": "#447da6",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "paths",
+      "name": "Cable Paths",
+      "color": "#ee9b27",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "trays",
+      "name": "Cable Trays",
+      "color": "#17a28d",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "conduits",
+      "name": "Conduits",
+      "color": "#7c68c4",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "outlets",
+      "name": "Network Outlets",
+      "color": "#1689db",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "racks",
+      "name": "IDFs / Racks",
+      "color": "#164c70",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "ap",
+      "name": "Access Points",
+      "color": "#078bea",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "cameras",
+      "name": "Cameras",
+      "color": "#8259c6",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "devices",
+      "name": "Devices",
+      "color": "#437888",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "labels",
+      "name": "Labels",
+      "color": "#385a70",
+      "visible": true,
+      "locked": false
+    }
+  ],
+  "objects": [
+    {
+      "id": "room-201",
+      "kind": "location",
+      "name": "Office 201",
+      "layerId": "rooms",
+      "x": 264,
+      "y": 65,
+      "rotation": 0,
+      "notes": "",
+      "width": 207,
+      "height": 200,
+      "locationType": "office"
+    },
+    {
+      "id": "room-204",
+      "kind": "location",
+      "name": "Office 204",
+      "layerId": "rooms",
+      "x": 330,
+      "y": 365,
+      "rotation": 0,
+      "notes": "",
+      "width": 230,
+      "height": 210,
+      "locationType": "office"
+    },
+    {
+      "id": "idf-01",
+      "kind": "idf",
+      "name": "IDF-01",
+      "layerId": "racks",
+      "x": 785,
+      "y": 155,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "plate-201",
+      "kind": "plate",
+      "name": "A-201-01",
+      "layerId": "outlets",
+      "x": 420,
+      "y": 235,
+      "rotation": 0,
+      "notes": "",
+      "locationId": "room-201",
+      "ports": [
+        {
+          "id": "plate-201-port-1",
+          "label": "A-201-01",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-201-port-2",
+          "label": "A-201-02",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "plate-202",
+      "kind": "plate",
+      "name": "A-202-01",
+      "layerId": "outlets",
+      "x": 585,
+      "y": 235,
+      "rotation": 0,
+      "notes": "",
+      "ports": [
+        {
+          "id": "plate-202-port-1",
+          "label": "A-202-01",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "plate-203",
+      "kind": "plate",
+      "name": "A-203-01",
+      "layerId": "outlets",
+      "x": 970,
+      "y": 235,
+      "rotation": 0,
+      "notes": "",
+      "ports": [
+        {
+          "id": "plate-203-port-1",
+          "label": "A-203-01",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-203-port-2",
+          "label": "A-203-02",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "plate-204",
+      "kind": "plate",
+      "name": "A-204-01",
+      "layerId": "outlets",
+      "x": 470,
+      "y": 475,
+      "rotation": 0,
+      "notes": "",
+      "locationId": "room-204",
+      "ports": [
+        {
+          "id": "plate-204-port-1",
+          "label": "A-204-01",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-204-port-2",
+          "label": "A-204-02",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-204-port-3",
+          "label": "A-204-03",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-204-port-4",
+          "label": "A-204-04",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "plate-205",
+      "kind": "plate",
+      "name": "A-205-01",
+      "layerId": "outlets",
+      "x": 740,
+      "y": 490,
+      "rotation": 0,
+      "notes": "",
+      "ports": [
+        {
+          "id": "plate-205-port-1",
+          "label": "A-205-01",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        },
+        {
+          "id": "plate-205-port-2",
+          "label": "A-205-02",
+          "medium": "copper",
+          "mappingStatus": "unmapped",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "ap-01",
+      "kind": "ap",
+      "name": "AP-01",
+      "layerId": "ap",
+      "x": 146,
+      "y": 178,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "ap-02",
+      "kind": "ap",
+      "name": "AP-02",
+      "layerId": "ap",
+      "x": 178,
+      "y": 450,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "ap-03",
+      "kind": "ap",
+      "name": "AP-03",
+      "layerId": "ap",
+      "x": 938,
+      "y": 455,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "cam-01",
+      "kind": "camera",
+      "name": "CAM-01",
+      "layerId": "cameras",
+      "x": 1020,
+      "y": 100,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "printer-01",
+      "kind": "printer",
+      "name": "PRN-01",
+      "layerId": "devices",
+      "x": 640,
+      "y": 490,
+      "rotation": 0,
+      "notes": ""
+    },
+    {
+      "id": "tray-main",
+      "kind": "tray",
+      "name": "Main corridor tray",
+      "layerId": "trays",
+      "x": 170,
+      "y": 315,
+      "rotation": 0,
+      "notes": "",
+      "points": [
+        {
+          "x": 170,
+          "y": 315
+        },
+        {
+          "x": 1010,
+          "y": 315
+        }
+      ],
+      "status": "planned"
+    },
+    {
+      "id": "path-201",
+      "kind": "cable",
+      "name": "Office 201 route",
+      "layerId": "paths",
+      "x": 785,
+      "y": 155,
+      "rotation": 0,
+      "notes": "",
+      "points": [
+        {
+          "x": 785,
+          "y": 155
+        },
+        {
+          "x": 785,
+          "y": 305
+        },
+        {
+          "x": 420,
+          "y": 305
+        },
+        {
+          "x": 420,
+          "y": 235
+        }
+      ],
+      "status": "planned",
+      "sourceId": "idf-01",
+      "destinationId": "plate-201"
+    },
+    {
+      "id": "path-204",
+      "kind": "cable",
+      "name": "Office 204 route",
+      "layerId": "paths",
+      "x": 785,
+      "y": 155,
+      "rotation": 0,
+      "notes": "",
+      "points": [
+        {
+          "x": 785,
+          "y": 155
+        },
+        {
+          "x": 785,
+          "y": 325
+        },
+        {
+          "x": 470,
+          "y": 325
+        },
+        {
+          "x": 470,
+          "y": 475
+        }
+      ],
+      "status": "planned",
+      "sourceId": "idf-01",
+      "destinationId": "plate-204"
+    },
+    {
+      "id": "conduit-east",
+      "kind": "conduit",
+      "name": "East conduit",
+      "layerId": "conduits",
+      "x": 1010,
+      "y": 315,
+      "rotation": 0,
+      "notes": "",
+      "points": [
+        {
+          "x": 1010,
+          "y": 315
+        },
+        {
+          "x": 1010,
+          "y": 510
+        },
+        {
+          "x": 938,
+          "y": 510
+        }
+      ],
+      "status": "planned"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+artifacts/
+*:Zone.Identifier
+*:sec.endpointdlp
+/package-lock.json

@@ -1,0 +1,86 @@
+import { seedFacilityLocations } from './facility-location-helpers';
+import { test, expect } from '@playwright/test';
+import type { Project } from '../src/project';
+import { readFile } from 'node:fs/promises';
+
+test.beforeEach(async ({ page }) => { await seedFacilityLocations(page, ["Room 18", "Room 23", "Room 24", "West wing", "Draft", "Floor 2"]); });
+
+test('bulk details preserve distinct notes, support replacement and clearing, and persist in backups', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  for (const n of [18, 23, 24]) {
+    await page.getByRole('button', { name: `Port ${n}, ${n === 18 ? 'connected' : 'available'}`, exact: true }).click();
+    await page.getByRole('combobox', { name: 'Facility location', exact: true }).selectOption(`Room ${n}`);
+    await page.getByRole('textbox', { name: 'Port notes', exact: true }).fill(`Outlet ${n}`);
+  }
+  await page.getByRole('checkbox', { name: 'Select multiple ports' }).check();
+  const apply = page.getByRole('button', { name: /^Apply details to/ });
+  await expect(apply).toBeDisabled();
+  for (const n of [18, 24]) await page.locator(`[data-grid-port="CAB-A01/PP-A04/${n}"]`).click();
+  const panel = page.getByRole('region', { name: 'Bulk patch-panel port details' });
+  await expect(panel.locator('.bulk-detail-current')).toHaveText(['Current: Mixed values', 'Current: Mixed values']);
+  await expect(apply).toBeDisabled();
+  await page.getByRole('combobox', { name: 'Facility location action', exact: true }).selectOption('replace');
+  await expect(apply).toBeDisabled();
+  await page.getByRole('combobox', { name: 'New facility location', exact: true }).selectOption('West wing');
+  await expect(page.locator('[data-grid-port="CAB-A01/PP-A04/18"]')).toHaveAttribute('title', /Room 18/);
+  await apply.click();
+  await expect(page.getByRole('combobox', { name: 'Facility location action', exact: true })).toHaveValue('keep');
+  await expect(apply).toBeDisabled();
+  let saved = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!)) as Project;
+  for (const n of [18, 24]) expect(saved.locations[0].layout.portDetails![`CAB-A01/PP-A04/${n}`]).toEqual({ facilityLocation: 'West wing', notes: `Outlet ${n}` });
+  expect(saved.locations[0].layout.portDetails!['CAB-A01/PP-A04/23']).toEqual({ facilityLocation: 'Room 23', notes: 'Outlet 23' });
+  expect(saved.locations[0].layout.cables.find(c => c.id === 'CR-0018')?.vlan).toBe(30);
+  expect(saved.locations[0].layout.portVlans!['CAB-A01/PP-A04/18']).toBe(30);
+  await page.getByRole('combobox', { name: 'Port notes action', exact: true }).selectOption('replace');
+  await page.getByRole('textbox', { name: 'New port notes', exact: true }).fill('Shared area\nRecheck labels');
+  await apply.click();
+  await panel.screenshot({ path: 'artifacts/bulk-port-details.png' });
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await pending;
+  saved = JSON.parse(await readFile((await download.path())!, 'utf8')) as Project;
+  for (const n of [18, 24]) expect(saved.locations[0].layout.portDetails![`CAB-A01/PP-A04/${n}`]).toEqual({ facilityLocation: 'West wing', notes: 'Shared area\nRecheck labels' });
+  await page.reload();
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Facility location', exact: true })).toHaveValue('West wing');
+  await expect(page.getByRole('textbox', { name: 'Port notes', exact: true })).toHaveValue('Shared area\nRecheck labels');
+  await page.getByRole('checkbox', { name: 'Select multiple ports' }).check();
+  for (const n of [18, 24]) await page.locator(`[data-grid-port="CAB-A01/PP-A04/${n}"]`).click();
+  await page.getByRole('combobox', { name: 'Port notes action', exact: true }).selectOption('clear');
+  await apply.click();
+  saved = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!)) as Project;
+  for (const n of [18, 24]) expect(saved.locations[0].layout.portDetails![`CAB-A01/PP-A04/${n}`]).toEqual({ facilityLocation: 'West wing', notes: '' });
+  await page.getByRole('combobox', { name: 'Facility location action', exact: true }).selectOption('clear');
+  await apply.click();
+  await expect(page.locator('.port-grid .port-info-marker')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('bulk details apply to all panel ports on mobile and reset drafts when selection or device changes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select multiple ports' }).check();
+  await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Facility location action', exact: true }).selectOption('replace');
+  await page.getByRole('combobox', { name: 'New facility location', exact: true }).selectOption('Draft');
+  await page.getByRole('button', { name: 'Port 23, available', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Facility location action', exact: true })).toHaveValue('keep');
+  await expect(page.getByRole('button', { name: /^Apply details to/ })).toBeDisabled();
+  await page.getByRole('button', { name: 'Select all 24 ports', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Facility location action', exact: true }).selectOption('replace');
+  await page.getByRole('combobox', { name: 'New facility location', exact: true }).selectOption('Floor 2');
+  await page.getByRole('combobox', { name: 'Port notes action', exact: true }).selectOption('replace');
+  await page.getByRole('textbox', { name: 'New port notes', exact: true }).fill('New office wing');
+  await page.getByRole('button', { name: 'Apply details to 24 ports', exact: true }).click();
+  await expect(page.locator('.port-grid .port-info-marker')).toHaveCount(24);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.getByRole('combobox', { name: 'Browse equipment' }).selectOption('PP-A03');
+  await expect(page.getByRole('button', { name: 'Apply details to 0 ports', exact: true })).toBeDisabled();
+  await expect(page.locator('.port-grid .port-info-marker')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Browse equipment' }).selectOption('SW-A01');
+  await expect(page.getByRole('region', { name: 'Bulk patch-panel port details' })).toHaveCount(0);
+});

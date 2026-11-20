@@ -1,0 +1,33 @@
+{
+  "repository": "https://github.com/netbox-community/devicetype-library",
+  "revision": "ee2d47348a52427de652bc29a5dee72de08801ea",
+  "license": "CC0-1.0",
+  "assets": [
+    {
+      "file": "generic-24-port-copper-patch-panel.front.png",
+      "source": "https://raw.githubusercontent.com/netbox-community/devicetype-library/ee2d47348a52427de652bc29a5dee72de08801ea/elevation-images/Generic/generic-24-port-copper-patch-panel.front.png",
+      "sha256": "43083dfdee554a79b354e3971bd967638cb41b6dd0649216fc3fac5c6cf3d9d8"
+    },
+    {
+      "file": "ubiquiti-unifi-switch-48-gen1.front.png",
+      "source": "https://raw.githubusercontent.com/netbox-community/devicetype-library/ee2d47348a52427de652bc29a5dee72de08801ea/elevation-images/Ubiquiti/ubiquiti-unifi-switch-48-gen1.front.png",
+      "sha256": "4fcf5a1c2b9b25c303ba9807d922bbd5ab7756a72f750c977e4a6df133f185bc"
+    },
+    {
+      "file": "LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/netbox-community/devicetype-library/ee2d47348a52427de652bc29a5dee72de08801ea/LICENSE.txt",
+      "sha256": "36ffd9dc085d529a7e60e1276d73ae5a030b020313e6c5408593a6ae2af39673"
+    },
+    {
+      "file": "24-port-copper-patch-panel.yaml",
+      "source": "https://raw.githubusercontent.com/netbox-community/devicetype-library/ee2d47348a52427de652bc29a5dee72de08801ea/device-types/Generic/24-port-copper-patch-panel.yaml",
+      "sha256": "183f928dea28e45304a87e9a81692ee4951ad288f0077d5b332e5d75670bcbce"
+    },
+    {
+      "file": "US-48.yaml",
+      "source": "https://raw.githubusercontent.com/netbox-community/devicetype-library/ee2d47348a52427de652bc29a5dee72de08801ea/device-types/Ubiquiti/US-48.yaml",
+      "sha256": "0c30f497e1a06f9a7ccd0422b370eb24491cd50cf8f8f8deccab3a88bb41d4a1"
+    }
+  ],
+  "notes": "Original images and device definitions are bundled unchanged. PortTracker adds its own normalized socket bounds. US-48 supports copper ports 1\u201348; pictured SFP/SFP+ uplinks are not modeled. CC0 does not grant trademark rights."
+}

@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 650" width="1100" height="650">
+  <title>Building A, Floor 1 architectural plan</title>
+  <desc>Single-floor office with a central corridor, conference room, five offices, IDF, break room, and open office. Network equipment and routes are editable overlays in PortTracker.</desc>
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#dfe8ef" stroke-width=".55"/></pattern>
+    <pattern id="raised-floor" width="25" height="25" patternUnits="userSpaceOnUse"><rect width="25" height="25" fill="#f5f8fa"/><path d="M25 0H0V25" fill="none" stroke="#dce5eb" stroke-width=".65"/></pattern>
+    <g id="chair" fill="#f9fbfc" stroke="#9baebc" stroke-width="1">
+      <rect x="-10" y="-8" width="20" height="17" rx="4"/><path d="M-10-4H10M-8 11H8" fill="none"/>
+    </g>
+    <g id="desk" stroke="#acbac6" stroke-width="1" fill="#f8fafc">
+      <rect width="78" height="39" rx="2"/><rect x="24" y="6" width="29" height="17" rx="1" fill="#e5edf3"/><path d="M36 23v4h7v-4M26 31h27" fill="none"/>
+      <rect x="60" y="7" width="10" height="15" rx="1" fill="#fff"/>
+      <use href="#chair" transform="translate(39 52)"/>
+    </g>
+    <g id="plant" stroke="#9eb9a7" stroke-width=".8" fill="#e5eee5">
+      <circle r="9" fill="#f4f7f1"/><path d="M0 0C-16-10-9-18 0-3C8-19 18-8 3 0C17 7 10 16 0 3C-9 16-17 6-3 0Z"/>
+    </g>
+    <g id="round-table" stroke="#acbac6" stroke-width="1" fill="#f8fafc">
+      <circle r="24"/>
+      <use href="#chair" transform="translate(0 -37)"/><use href="#chair" transform="translate(0 37) rotate(180)"/>
+      <use href="#chair" transform="translate(-37 0) rotate(-90)"/><use href="#chair" transform="translate(37 0) rotate(90)"/>
+    </g>
+  </defs>
+
+  <rect width="1100" height="650" fill="#f5f9fc"/>
+  <rect x="40" y="55" width="1020" height="530" fill="#fff"/>
+  <rect x="40" y="275" width="1020" height="80" fill="#edf4f9"/>
+  <rect x="700" y="60" width="175" height="210" fill="url(#raised-floor)"/>
+  <rect width="1100" height="650" fill="url(#grid)"/>
+
+  <!-- Structural walls follow the original starter's room boundaries. -->
+  <g fill="none" stroke-linejoin="miter">
+    <rect x="40" y="55" width="1020" height="530" stroke="#2d4356" stroke-width="9"/>
+    <rect x="40" y="55" width="1020" height="530" stroke="#bac8d3" stroke-width="4"/>
+    <path id="walls" d="M255 55V275M480 55V275M695 55V275M880 55V275M320 355V585M570 355V585M825 355V585M40 275H205M240 275H420M455 275H635M670 275H820M855 275H990M1025 275H1060M40 355H245M280 355H500M535 355H755M790 355H985M1020 355H1060" stroke="#394e60" stroke-width="7"/>
+    <use href="#walls" stroke="#c2ced7" stroke-width="2.5"/>
+  </g>
+
+  <!-- Glazing: white breaks in the perimeter with fine blue double lines. -->
+  <g stroke="#fff" stroke-width="11">
+    <path d="M82 55h130M297 55h140M522 55h130M737 55h100M922 55h95M84 585h175M361 585h165M612 585h168M868 585h150M40 123v100M1060 123v100M40 420v105M1060 422v100"/>
+  </g>
+  <g fill="none" stroke="#8fb6cf" stroke-width="1.4">
+    <path d="M82 52h130v6H82zM297 52h140v6H297zM522 52h130v6H522zM737 52h100v6H737zM922 52h95v6H922zM84 582h175v6H84zM361 582h165v6H361zM612 582h168v6H612zM868 582h150v6H868zM37 123h6v100h-6zM1057 123h6v100h-6zM37 420h6v105h-6zM1057 422h6v100h-6z"/>
+    <path d="M147 52v6M367 52v6M587 52v6M787 52v6M969 52v6M171 582v6M443 582v6M696 582v6M943 582v6M37 173h6M1057 173h6M37 473h6M1057 472h6"/>
+  </g>
+
+  <!-- Door leaves and swing arcs. Door clearance is 35 plan units. -->
+  <g fill="none" stroke="#8c9eae" stroke-width="1.2">
+    <path d="M205 275v-35a35 35 0 0 1 35 35M420 275v-35a35 35 0 0 1 35 35M635 275v-35a35 35 0 0 1 35 35M820 275v-35a35 35 0 0 1 35 35M990 275v-35a35 35 0 0 1 35 35M245 355v35a35 35 0 0 0 35-35M500 355v35a35 35 0 0 0 35-35M755 355v35a35 35 0 0 0 35-35M985 355v35a35 35 0 0 0 35-35"/>
+  </g>
+
+  <!-- Conference furnishings. -->
+  <g stroke="#a6b6c2" stroke-width="1" fill="#f7fafc">
+    <rect x="86" y="147" width="120" height="63" rx="15"/><path d="M146 147v63" stroke="#d7e1e8"/>
+    <rect x="92" y="76" width="109" height="7" rx="1" fill="#e3ebf1"/>
+  </g>
+  <g>
+    <use href="#chair" transform="translate(112 132)"/><use href="#chair" transform="translate(146 132)"/><use href="#chair" transform="translate(180 132)"/>
+    <use href="#chair" transform="translate(112 225) rotate(180)"/><use href="#chair" transform="translate(146 225) rotate(180)"/><use href="#chair" transform="translate(180 225) rotate(180)"/>
+    <use href="#plant" transform="translate(68 247)"/>
+  </g>
+
+  <!-- Office furniture remains part of the background, not network devices. -->
+  <use href="#desk" transform="translate(335 149)"/>
+  <use href="#desk" transform="translate(555 149)"/>
+  <use href="#desk" transform="translate(930 149)"/>
+  <use href="#desk" transform="translate(378 448)"/>
+  <use href="#desk" transform="translate(641 448)"/>
+  <g stroke="#acbac6" stroke-width="1" fill="#f0f5f8">
+    <path d="M274 126h20v102h-20zM274 160h20M274 194h20M499 126h20v102h-20zM499 160h20M499 194h20M1033 131h14v85h-14zM1033 159h14M1033 187h14M337 434h17v111h-17zM337 471h17M337 508h17M592 434h17v111h-17zM592 471h17M592 508h17"/>
+    <rect x="708" y="70" width="13" height="116" rx="1"/>
+  </g>
+  <use href="#plant" transform="translate(451 222)"/><use href="#plant" transform="translate(665 222)"/>
+  <use href="#plant" transform="translate(1000 232)"/><use href="#plant" transform="translate(530 550)"/><use href="#plant" transform="translate(790 548)"/>
+
+  <!-- Break room with kitchenette and tables. -->
+  <g stroke="#a9bac6" stroke-width="1" fill="#f2f6f9">
+    <rect x="56" y="372" width="18" height="171" rx="1"/><path d="M56 414h18M56 457h18M56 500h18"/>
+    <rect x="58" y="382" width="14" height="26" rx="3" fill="#fff"/>
+    <path d="M63 391h7m-4-3v5"/>
+    <rect x="90" y="548" width="93" height="23" rx="3"/><path d="M96 548v17h81v-17M137 548v17"/>
+  </g>
+  <use href="#round-table" transform="translate(140 461)"/>
+  <use href="#round-table" transform="translate(253 475)"/>
+  <use href="#plant" transform="translate(291 552)"/>
+
+  <!-- Open-office bench desks and perimeter storage. -->
+  <g>
+    <use href="#desk" transform="translate(853 440) scale(.78)"/>
+    <use href="#desk" transform="translate(951 440) scale(.78)"/>
+    <use href="#desk" transform="translate(853 512) scale(.78)"/>
+    <use href="#desk" transform="translate(951 512) scale(.78)"/>
+  </g>
+  <path d="M940 431v128" fill="none" stroke="#d0dde6" stroke-width="2"/>
+
+  <!-- Room names are intentionally stable background labels. Editable location
+       names and location boxes are rendered separately by the editor. -->
+  <g fill="#3e576b" font-family="Inter,Arial,sans-serif" font-size="15" text-anchor="middle" font-weight="500">
+    <text x="147" y="105">Conference</text>
+    <text x="367" y="105">Office 201</text>
+    <text x="587" y="105">Office 202</text>
+    <text x="787" y="105">IDF-01</text>
+    <text x="970" y="105">Office 203</text>
+    <text x="180" y="405">Break Room</text>
+    <text x="445" y="405">Office 204</text>
+    <text x="697" y="405">Office 205</text>
+    <text x="943" y="405">Open Office</text>
+    <text x="550" y="320" font-size="11" font-weight="500" letter-spacing="3" fill="#7a93a6">MAIN CORRIDOR</text>
+  </g>
+  <g stroke="#b2c3d1" stroke-width=".8" fill="none">
+    <path d="M40 613H1060M40 606v14M1060 606v14M20 55v530M13 55h14M13 585h14"/>
+  </g>
+  <g font-family="Inter,Arial,sans-serif" font-size="9" fill="#8299aa">
+    <text x="40" y="33" letter-spacing="1.6">BUILDING A / FLOOR 1</text>
+    <text x="1060" y="33" text-anchor="end" letter-spacing="1.2">EXAMPLE ARCHITECTURAL PLAN</text>
+    <text x="550" y="632" text-anchor="middle">Illustrative layout · Calibrate in the editor before measuring</text>
+  </g>
+</svg>

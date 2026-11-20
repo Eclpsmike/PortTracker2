@@ -1,0 +1,50 @@
+import { test, expect } from '@playwright/test';
+import { rackX, RACK_WIDTH } from '../src/geometry';
+
+test('a left switch port to a right patch port crosses the full overhead tray', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  const frames = await page.locator('.cabinet-frame').evaluateAll(nodes => nodes.map(node => { const r = (node as SVGRectElement).getBoundingClientRect(); return { left: r.left, right: r.right }; }));
+  expect(frames).toHaveLength(2);
+  expect(frames[1].left).toBeCloseTo(frames[0].right, 3);
+  await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
+  await page.getByRole('combobox', { name: 'From equipment', exact: true }).selectOption('SW-A01');
+  await page.getByRole('combobox', { name: 'From port', exact: true }).selectOption('1');
+  await page.getByRole('combobox', { name: 'To equipment', exact: true }).selectOption('PP-B01');
+  await page.getByRole('combobox', { name: 'To port', exact: true }).selectOption('24');
+  await page.getByRole('combobox', { name: 'Logical VLAN', exact: true }).selectOption('10');
+  await page.getByRole('button', { name: 'Save connection', exact: true }).click();
+  await expect(page.locator('.connection-details')).toContainText('left → overhead → right');
+  await expect(page.locator('.path-diagram')).toHaveAttribute('aria-label', 'Overhead route from Rack A left manager to Rack B right manager');
+  const mainPath = page.locator('.cable-group.selected > path').first();
+  const fullSpan = await mainPath.evaluate((path: SVGPathElement) => { const b = path.getBBox(); return { x: b.x, right: b.x + b.width, y: b.y }; });
+  expect(fullSpan.x).toBeLessThan(80);
+  expect(fullSpan.right).toBeGreaterThan(rackX(1) + RACK_WIDTH - 40);
+  expect(fullSpan.y).toBeLessThan(60);
+  const previewSpan = await page.locator('.path-diagram > path').first().evaluate((path: SVGPathElement) => { const b = path.getBBox(); return { x: b.x, right: b.x + b.width }; });
+  expect(previewSpan.x).toBe(88);
+  expect(previewSpan.right).toBe(216);
+  await page.evaluate(() => document.fonts.ready);
+  await page.locator('.center-column').screenshot({ path: 'artifacts/routing-full-overhead.png' });
+
+  await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
+  await page.getByRole('combobox', { name: 'To rack', exact: true }).selectOption('CAB-A01');
+  await page.getByRole('combobox', { name: 'To port', exact: true }).selectOption('24');
+  await page.getByRole('button', { name: 'Save connection', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Rack connection', exact: true })).toBeVisible();
+  await expect(page.locator('.connection-details')).toContainText('left → overhead → right');
+  await expect(page.locator('.path-diagram')).toHaveAttribute('aria-label', 'Overhead route from Rack A left manager to Rack A right manager');
+  const sameRack = await mainPath.evaluate((path: SVGPathElement) => { const b = path.getBBox(); return { right: b.x + b.width, y: b.y }; });
+  expect(sameRack.right).toBeLessThan(450);
+  expect(sameRack.y).toBeLessThan(60);
+
+  await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
+  await page.getByRole('combobox', { name: 'From port', exact: true }).selectOption('25');
+  await page.getByRole('combobox', { name: 'To port', exact: true }).selectOption('12');
+  await page.getByRole('button', { name: 'Save connection', exact: true }).click();
+  await expect(page.locator('.connection-details')).toContainText('left vertical manager');
+  await expect(page.locator('.path-diagram')).toHaveAttribute('aria-label', 'Vertical manager route from Rack A left manager to Rack A left manager');
+  expect(await mainPath.evaluate((path: SVGPathElement) => path.getBBox().y)).toBeGreaterThan(100);
+  expect(errors).toEqual([]);
+});

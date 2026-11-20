@@ -1,0 +1,111 @@
+import { seedFacilityLocations } from './facility-location-helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import type { Project } from '../src/project';
+
+async function saved(page: Page): Promise<Project> {
+  return page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
+}
+async function openRemoval(page: Page, rackId: string) {
+  await page.getByRole('button', { name: 'Remove rack', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Rack to remove', exact: true }).selectOption(rackId);
+  return page.getByRole('dialog', { name: 'Remove rack', exact: true });
+}
+
+test.beforeEach(async ({ page }) => { await seedFacilityLocations(page, ["Removed room"]); });
+
+test('rack removal previews impact, supports cancel, and saves only the selected rack deletion', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Distribution Frames', exact: true }).click();
+  await page.getByRole('button', { name: 'Add distribution frame', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Distribution frame name', exact: true }).fill('IDF-02');
+  await page.getByRole('combobox', { name: 'Starting layout' }).selectOption('idf-01');
+  await page.getByRole('button', { name: 'Save distribution frame', exact: true }).click();
+  await page.getByRole('button', { name: 'Open IDF-01', exact: true }).click();
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Browse rack' }).selectOption('CAB-A02');
+  await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Port notes', exact: true }).fill('Keep this note');
+  await page.getByRole('combobox', { name: 'Port VLAN', exact: true }).selectOption('99');
+  await page.getByRole('combobox', { name: 'Browse rack' }).selectOption('CAB-A01');
+  await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Facility location', exact: true }).selectOption('Removed room');
+  const before = await saved(page);
+  let dialog = await openRemoval(page, 'CAB-A01');
+  const impact = dialog.locator('.cabinet-removal-impact');
+  await expect(impact.locator('dd')).toHaveText(['25', '720', '17', '32', '1']);
+  await expect(dialog).toContainText('Connections to other racks are also removed');
+  await dialog.screenshot({ path: 'artifacts/remove-rack.png' });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await saved(page)).toEqual(before);
+  await openRemoval(page, 'CAB-A02');
+  await page.keyboard.press('Escape');
+  expect(await saved(page)).toEqual(before);
+  dialog = await openRemoval(page, 'CAB-A01');
+  await dialog.getByRole('button', { name: 'Delete rack', exact: true }).click();
+  await expect(page.locator('.rack-port')).toHaveCount(720);
+  await expect(page.getByRole('combobox', { name: 'Browse rack' })).toHaveValue('CAB-A02');
+  await expect(page.locator('.cable-group')).toHaveCount(15);
+  const after = await saved(page);
+  expect(after.locations[0].layout.racks).toEqual(before.locations[0].layout.racks.filter(r => r.id === 'CAB-A02'));
+  expect(after.locations[1]).toEqual(before.locations[1]);
+  expect(after.configuration).toEqual(before.configuration);
+  expect(Object.keys(after.locations[0].layout.portVlans!).every(key => key.startsWith('CAB-A02/'))).toBe(true);
+  expect(after.locations[0].layout.portDetails).toEqual({ 'CAB-A02/PP-B01/24': { facilityLocation: '', notes: 'Keep this note' } });
+  expect(after.locations[0].layout.portVlans!['CAB-A02/SW-B01/18']).toBe(30);
+  await page.reload();
+  await expect(page.locator('.rack-port')).toHaveCount(720);
+  await page.getByRole('button', { name: 'Multiple racks', exact: true }).click();
+  await page.getByRole('button', { name: 'Add template rack', exact: true }).click();
+  await page.getByRole('button', { name: 'Add rack', exact: true }).click();
+  await expect(page.locator('.rack-port')).toHaveCount(1440);
+  const extended = await saved(page);
+  const racks = extended.locations[0].layout.racks;
+  expect(racks.map(r => r.id)).toEqual(['CAB-A02', 'CAB-A03']);
+  expect(racks[1].positionM).toBeCloseTo(racks[0].positionM + .85);
+  expect(errors).toEqual([]);
+});
+
+test('mobile removal handles hidden racks, bulk selections, the last rack, and adding again', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Multiple racks', exact: true }).click();
+  await page.getByRole('button', { name: 'Add template rack', exact: true }).click();
+  await page.getByRole('button', { name: 'Add rack', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Rack C', exact: true }).uncheck();
+  let dialog = await openRemoval(page, 'CAB-A03');
+  await expect(dialog.locator('.cabinet-removal-impact dd')).toHaveText(['25', '720', '0', '0', '0']);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Delete rack', exact: true }).click();
+  await expect(page.locator('.rack-port')).toHaveCount(1440);
+  await page.getByRole('button', { name: 'Single rack', exact: true }).click();
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select multiple ports' }).check();
+  await page.getByRole('button', { name: 'Select all 24 ports', exact: true }).click();
+  dialog = await openRemoval(page, 'CAB-A01');
+  await dialog.getByRole('button', { name: 'Delete rack', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Visible rack', exact: true })).toHaveValue('CAB-A02');
+  await expect(page.getByRole('checkbox', { name: 'Select multiple ports' })).not.toBeChecked();
+  await expect(page.locator('.rack-port')).toHaveCount(720);
+  dialog = await openRemoval(page, 'CAB-A02');
+  await expect(dialog).toContainText('This is the last rack');
+  await dialog.getByRole('button', { name: 'Delete rack', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'No racks in IDF-01', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove rack', exact: true })).toBeDisabled();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'No racks in IDF-01', exact: true })).toBeVisible();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  const download = await pending;
+  const project = JSON.parse(await readFile((await download.path())!, 'utf8')) as Project;
+  expect(project.locations[0].layout.racks).toEqual([]);
+  expect(project.locations[0].layout.cables).toEqual([]);
+  expect(project.locations[0].layout.portVlans).toEqual({});
+  await page.getByRole('region', { name: 'Rack workspace' }).getByRole('button', { name: 'Add template rack', exact: true }).click();
+  await page.getByRole('button', { name: 'Add rack', exact: true }).click();
+  await expect(page.locator('.rack-port')).toHaveCount(720);
+  await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Facility location', exact: true })).toHaveValue('');
+});
