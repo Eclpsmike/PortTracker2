@@ -11,4 +11,8 @@ test-results/
 artifacts/
 *:Zone.Identifier
 *:sec.endpointdlp
-/package-lock.json
+
+# Local project data, uploaded assets, and generated credentials
+/porttracker-project.json
+/server/data/
+/server/.admin-credentials
