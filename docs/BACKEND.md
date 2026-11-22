@@ -12,3 +12,9 @@ The local API runs on `127.0.0.1:3001` using Node.js 24+, Fastify and PostgreSQL
 Use `server/.env.example` when configuring an existing deployment manually. Credentials, uploaded assets and the root `porttracker-project.json` migration source are ignored by Git. Back up database and asset storage together. This development setup binds to localhost.
 
 Implementation checkpoints are committed separately: foundation, schema, asset storage, migration/API, then frontend and authentication.
+
+## Database model
+
+Migration 002 stores projects/configuration, buildings, frames, racks, equipment, physical device ports, cable endpoints, templates/revisions/geometry, floor/layers/map objects/SMB ports, and change events in related tables. Extensible presentation fields remain JSONB on their owning record. Uploaded binary files are handled separately. Foreign keys include project ownership; a physical port can occur in only one cable endpoint. Published template revisions reject updates. Coordinates are normalized and bounded.
+
+Legacy display IDs remain available for backup compatibility. Server UUIDs identify records. Device identity metadata travels with the frontend model so rack moves and port-range changes preserve physical endpoint UUIDs. Database migrations run with a separate owner role; the API has data permissions only.
