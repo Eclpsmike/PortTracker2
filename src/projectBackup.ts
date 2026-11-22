@@ -1,3 +1,4 @@
+import { remoteStore } from './serverStorage';
 import { importProject, parseProject, saveProject, type Project } from './project';
 import { parseFloorPlan, type FloorPlan } from './facility/model';
 import { deleteFloorPlan, downloadFile, readFloorPlan, saveFloorPlan } from './facility/storage';
@@ -43,6 +44,7 @@ export async function exportProjectBackup(project: Project, currentPlan?: FloorP
 }
 
 export async function restoreProjectBackup(backup: ImportedProjectBackup): Promise<Project> {
+  const remote=remoteStore();if(remote)return remote.importBackup(backup);
   // Stage the drawing under a fresh local project ID. Only switch the active
   // localStorage record after IndexedDB commits, leaving the old pair intact
   // if either storage operation fails. Equipment/frame/port IDs stay unchanged.

@@ -1,3 +1,4 @@
+import { followPortReference, mappedPortId, samePortReference } from '../src/facility/portIdentityLinks';
 import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { parseDocument } from 'yaml';
@@ -87,15 +88,20 @@ export class ProjectRepository {
       if(existing&&existing.legacy_id!==project.id)throw new HttpError(400,'Project identity does not match. Import as a separate project.');
       const revision=existing?existing.revision+1:1;
       const previousEq=existing?(await c.query('SELECT e.id,e.legacy_id,f.legacy_id AS frame FROM equipment e JOIN racks r ON r.id=e.rack_id JOIN distribution_frames f ON f.id=r.frame_id WHERE e.project_id=$1',[id])).rows:[];
+      const previousMap=existing?(await c.query('SELECT object_id,legacy_id,device_port_id,data FROM map_ports WHERE project_id=$1',[id])).rows:[];
       const previousPorts=existing?(await c.query('SELECT id,equipment_id,slot FROM device_ports WHERE project_id=$1',[id])).rows:[];
       const identities=new Set<string>();
       for(const frame of project.locations)for(const rack of frame.layout.racks)for(const e of rack.equipment){
-        const retained=!isNew&&e.databaseId&&previousEq.some(old=>old.id===e.databaseId&&old.legacy_id===e.id&&old.frame===frame.id)?e.databaseId:stableId(id,'equipment',frame.id,rack.id,e.id);
+        const retained=!isNew&&e.databaseId&&previousEq.some(old=>old.id===e.databaseId&&old.legacy_id===e.id&&old.frame===frame.id)?e.databaseId:!isNew&&isUuid(e.databaseId)&&!previousEq.some(old=>old.id===e.databaseId)?e.databaseId:stableId(id,'equipment',frame.id,rack.id,e.id);
         if(identities.has(retained))throw new HttpError(400,'Duplicate equipment identity.');identities.add(retained);e.databaseId=retained;
         e.databasePortIds=portNumbers(e).map((_,slot)=>{
-          const old=e.databasePortIds?.[slot];const pid=!isNew&&old&&previousPorts.some(p=>p.id===old&&p.equipment_id===retained&&p.slot===slot)?old:stableId(retained,'port',String(slot));
+          const old=e.databasePortIds?.[slot];const pid=!isNew&&old&&previousPorts.some(p=>p.id===old&&p.equipment_id===retained&&p.slot===slot)?old:!isNew&&isUuid(old)&&!previousPorts.some(p=>p.id===old)?old:stableId(retained,'port',String(slot));
           if(identities.has(pid))throw new HttpError(400,'Duplicate physical port identity.');identities.add(pid);return pid;
         });
+      }
+      if(parsed.facilityPlan&&existing){
+        const floorId=stableId(id,'floor',parsed.facilityPlan.id),byPort=new Map(rackPortIndex(project).flatMap(row=>{const pid=mappedPortId(row);return pid?[[pid,row] as const]:[];}));
+        for(const object of parsed.facilityPlan.objects)if(object.ports)object.ports=object.ports.map(port=>{const old=previousMap.find(p=>p.object_id===stableId(floorId,'object',object.id)&&p.legacy_id===port.id);const row=old?.device_port_id&&byPort.get(old.device_port_id);return old&&row&&samePortReference(old.data,port)?followPortReference(port,row):port;});
       }
       const wire=createProjectBackup(project,parsed.facilityPlan),counts=backupCounts(wire);
       const metadata=omit(project,['buildings','locations','configuration','templates']);

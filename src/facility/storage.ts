@@ -1,3 +1,4 @@
+import { remoteStore } from '../serverStorage';
 import { parseFloorPlan, type FloorPlan } from './model';
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -12,6 +13,7 @@ function openDatabase(): Promise<IDBDatabase> {
 // Keep edits exportable across navigation even when browser persistence fails.
 const latestPlans = new Map<string, FloorPlan>();
 export async function readFloorPlan(projectId: string): Promise<FloorPlan | null> {
+  const remote=remoteStore();if(remote){if(projectId!==remote.project.id)throw new Error('Project identity does not match the open server project.');return structuredClone(remote.floor);}
   if (latestPlans.has(projectId)) return structuredClone(latestPlans.get(projectId)!);
   const db = await openDatabase();
   try {
@@ -26,6 +28,7 @@ export async function readFloorPlan(projectId: string): Promise<FloorPlan | null
 // Serialize writes across page unmounts so an older save cannot replace a newer edit.
 let saves: Promise<void> = Promise.resolve();
 export function saveFloorPlan(projectId: string, plan: FloorPlan): Promise<void> {
+  const remote=remoteStore();if(remote){if(projectId!==remote.project.id)return Promise.reject(new Error('Project identity mismatch.'));if(remote.user.role==='viewer')return Promise.resolve();remote.updateFloor(plan);return remote.flush();}
   latestPlans.set(projectId, structuredClone(plan));
   const save = saves.catch(() => {}).then(async () => {
     const db = await openDatabase();

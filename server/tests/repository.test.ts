@@ -28,6 +28,8 @@ test('relational import/export preserves all data, port identities and optimisti
     const updated=await repo.load(id),after=updated.backup.locations[0].layout.racks[0].equipment[0];
     assert.equal(after.databaseId,oldId);assert.deepEqual(after.databasePortIds,portIds);
     assert.equal(updated.backup.locations[0].layout.cables[0].from.port,100);
+    assert.equal(updated.backup.facilityPlan!.objects.find(o=>o.name==='SMB A')!.ports![0].patchPanelPort,100);
+    assert.ok((await db.query('SELECT device_port_id FROM map_ports WHERE project_id=$1 AND device_port_id=$2',[id,portIds![0]])).rows.length>0);
     await assert.rejects(()=>repo.save(loaded.backup,{id,expectedRevision:loaded.revision,actor:'stale'}),/another session/);
     const bad=structuredClone(updated.backup);bad.locations[0].layout.cables.push({...bad.locations[0].layout.cables[0],id:'duplicate'});
     await assert.rejects(()=>repo.save(bad,{id,expectedRevision:updated.revision,actor:'invalid'}));

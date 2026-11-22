@@ -27,4 +27,4 @@ function pdfAssets(): Plugin {
     generateBundle() { for (const [url, path] of assets) this.emitFile({ type: 'asset', fileName: url.slice(1), source: readFileSync(path) }); },
   };
 }
-export default defineConfig({ plugins: [react(), pdfAssets()] });
+export default defineConfig({ plugins: [react(), pdfAssets()], server: { proxy: { '/api': process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:3001' } } });

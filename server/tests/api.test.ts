@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createPool } from '../db';
+import { configFromEnv } from '../config';
+import { createUser } from '../auth';
+import { buildServer } from '../app';
+import { locationPortsFixture } from '../../tests/location-ports-fixture';
+import { createProjectBackup } from '../../src/projectBackup';
+test('authenticated API enforces roles, origins, revisions and revocable sessions',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'pt-api-')),config={...configFromEnv(),assetRoot:root},db=createPool(config.databaseUrl),app=buildServer(config,db);
+  const suffix=randomUUID().slice(0,8),password='Test-only-password-'+suffix,userIds:string[]=[];let projectId:string|undefined;
+  const headers={origin:config.origins[0],'content-type':'application/json'};
+  try{
+    const editor=await createUser(db,`editor-${suffix}`,password,'editor'),viewer=await createUser(db,`viewer-${suffix}`,password,'viewer'),admin=await createUser(db,`admin-${suffix}`,password,'admin');userIds.push(editor.id,viewer.id,admin.id);
+    assert.equal((await app.inject('/api/projects')).statusCode,401);
+    assert.equal((await app.inject({method:'POST',url:'/api/auth/login',headers:{...headers,origin:'https://untrusted.example'},payload:{username:editor.username,password}})).statusCode,403);
+    const login=await app.inject({method:'POST',url:'/api/auth/login',headers,payload:{username:editor.username,password}});assert.equal(login.statusCode,200);
+    const cookie=String(login.headers['set-cookie']).split(';')[0];assert.match(String(login.headers['set-cookie']),/HttpOnly/);
+    const {project,plan}=locationPortsFixture();project.id=randomUUID();
+    const created=await app.inject({method:'POST',url:'/api/projects',headers:{...headers,cookie},payload:createProjectBackup(project,plan)});assert.equal(created.statusCode,200,created.body);projectId=created.json().id;
+    const loaded=created.json();loaded.backup.siteName='Updated through API';
+    assert.equal((await app.inject({method:'PUT',url:`/api/projects/${projectId}`,headers:{...headers,cookie},payload:loaded.backup})).statusCode,428);
+    const saved=await app.inject({method:'PUT',url:`/api/projects/${projectId}`,headers:{...headers,cookie,'if-match':'"1"'},payload:loaded.backup});assert.equal(saved.statusCode,200,saved.body);
+    assert.equal((await app.inject({method:'PUT',url:`/api/projects/${projectId}`,headers:{...headers,cookie,'if-match':'"1"'},payload:loaded.backup})).statusCode,409);
+    const vLogin=await app.inject({method:'POST',url:'/api/auth/login',headers,payload:{username:viewer.username,password}}),vCookie=String(vLogin.headers['set-cookie']).split(';')[0];
+    assert.equal((await app.inject({url:`/api/projects/${projectId}`,headers:{cookie:vCookie}})).statusCode,200);
+    assert.equal((await app.inject({method:'PUT',url:`/api/projects/${projectId}`,headers:{...headers,cookie:vCookie,'if-match':'"2"'},payload:loaded.backup})).statusCode,403);
+    assert.equal((await app.inject({url:'/api/users',headers:{cookie:vCookie}})).statusCode,403);
+    await app.inject({method:'POST',url:'/api/auth/logout',headers:{...headers,cookie},payload:{}});
+    assert.equal((await app.inject({url:`/api/projects/${projectId}`,headers:{cookie}})).statusCode,401);
+    assert.equal((await app.inject({url:`/api/projects/${projectId}/export`,headers:{cookie:vCookie}})).json().siteName,'Updated through API');
+    const aLogin=await app.inject({method:'POST',url:'/api/auth/login',headers,payload:{username:admin.username,password}}),aCookie=String(aLogin.headers['set-cookie']).split(';')[0];
+    const newUser=await app.inject({method:'POST',url:'/api/users',headers:{...headers,cookie:aCookie},payload:{username:`managed-${suffix}`,password,role:'viewer'}});assert.equal(newUser.statusCode,200,newUser.body);userIds.push(newUser.json().user.id);
+    const disabled=await app.inject({method:'PATCH',url:`/api/users/${viewer.id}`,headers:{...headers,cookie:aCookie},payload:{disabled:true}});assert.equal(disabled.statusCode,200,disabled.body);
+    assert.equal((await app.inject({url:`/api/projects/${projectId}`,headers:{cookie:vCookie}})).statusCode,401);
+    assert.equal((await app.inject({url:'/api/users',headers:{cookie:aCookie}})).statusCode,200);
+  }finally{if(projectId)await db.query('DELETE FROM projects WHERE id=$1',[projectId]);await db.query('DELETE FROM app_users WHERE id=ANY($1::uuid[])',[userIds]);await app.close();await db.end();await rm(root,{recursive:true,force:true});}
+});

@@ -34,3 +34,34 @@ Run `npm run db:import -- porttracker-project.json` to validate and import a uni
 Template content uses a canonical digest, so ordinary saves do not create new revisions. Saving an edited template publishes a new immutable revision. Installed devices reference a revision; upgrading the devices represented in an explicit project edit is committed with that same edit. The frontend asks for confirmation when editing a used template. Historical revisions remain stored. Source YAML is retained as text and parsed metadata as JSONB.
 
 The current write API saves a validated project aggregate transactionally while storing its components relationally. It does not store the whole project as a JSON blob. This provides a compatible transition for the existing editor; narrower per-object endpoints can be added later. It is currently one shared workspace with application-wide roles, not a multi-tenant hosted service.
+
+## Frontend and accounts
+
+Set `VITE_STORAGE_MODE=server` in root `.env.local` and restart Vite. `npm run dev` proxies `/api` to `http://127.0.0.1:3001` (override with `API_PROXY_TARGET`). Run `npm run server` separately. Server mode requires login and does not silently fall back to localStorage/IndexedDB when the backend is down. `VITE_STORAGE_MODE=local` retains the browser-only workflow and its existing backups.
+
+Run `npm run users:create -- admin admin` once. A random initial password is written to ignored, owner-readable `server/.admin-credentials`; it is never printed in logs or committed. Sign in and use **Account → Change password**. Administrators can create users, change roles, and disable accounts. Editors can read/write/import/export projects; viewers can read/export. These roles apply to the entire shared workspace. At least one enabled administrator must remain.
+
+Passwords use salted scrypt hashes. Sessions use random tokens in HttpOnly, SameSite=Strict cookies; only token hashes are stored in PostgreSQL. Sessions expire after 12 hours; logout, password changes, disabling users and role changes revoke sessions. Sign-in attempts are rate limited. State-changing requests require a configured allowed Origin and JSON content type. For a future HTTPS deployment set `COOKIE_SECURE=true`, configure `APP_ORIGINS`, and serve the built frontend and `/api` from the same origin through a TLS reverse proxy. This localhost development setup does not provision public hosting or TLS.
+
+The session bar reports pending, saving, saved, and failed states. Saves serialize rack and drawing changes with `If-Match` revision checks. A conflict blocks automatic retries and offers **Export unsaved changes** and **Reload server version**. Network failures offer **Retry save**; expired sessions offer **Sign in again** while retaining edits. Closing a tab with pending changes prompts the browser. Temporary edits are not durable across a browser crash; use the provided export when a save cannot finish.
+
+### API
+
+- `GET /api/health`, `GET /api/ready`: process/database readiness.
+- `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST /api/auth/password`: sessions and password changes.
+- `GET /api/projects`, `GET /api/projects/:id`: list and load projects.
+- `POST /api/projects`: import a new validated project.
+- `PUT /api/projects/:id` with `If-Match: "<revision>"`: update an existing project atomically.
+- `GET /api/projects/:id/export`: portable complete backup.
+- `GET/POST /api/users`, `PATCH /api/users/:id`: administrator user management.
+
+A server project load hydrates file assets for the current frontend. Export remains portable and can be used in local mode. Uploaded assets are never exposed by an unauthenticated static file route. Template-only import/export continues to work in both modes.
+
+## Verification
+
+- `npm test`: existing model tests and autosave queue tests.
+- `npm run test:server`: real PostgreSQL transaction, schema, asset, identity, API permission and conflict tests. Fixtures use random IDs and are removed or rolled back.
+- `npm run test:server:ui`: real API + frontend on ports 3002/5189; browser tests filter the project list to temporary fixtures so they do not edit migrated projects.
+- `npm run build`: TypeScript validation and production frontend bundle.
+
+For a clean deployment, install dependencies, provision roles/configuration, apply migrations, create an admin, and import a project backup. Preserve both PostgreSQL and `ASSET_ROOT` in infrastructure backups; the portable project export is an additional application-level backup. Historical project events and accounts are database administration data and are not included in the portable project file.

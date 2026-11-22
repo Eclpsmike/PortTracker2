@@ -24,6 +24,7 @@
     "tests",
     "playwright.config.ts",
     "scripts",
-    "server"
+    "server",
+    "playwright.server.config.ts"
   ]
 }

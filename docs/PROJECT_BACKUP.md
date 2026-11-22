@@ -1,6 +1,6 @@
 # Project backup coverage
 
-**Export** in the header and **Export project** in either workspace download `porttracker-project.json`. One file contains the active rack project and its associated facility drawing. Template-only export remains available separately for sharing a reusable template.
+**Export** in the header and **Export project** in either workspace download `porttracker-project.json`. One file contains the active rack project and its associated facility drawing. In server mode, the same format is reconstructed from PostgreSQL and file assets; current unsaved editor changes can also be exported. Account/session records and administrative project history are not part of a portable project backup. Template-only export remains available separately for sharing a reusable template.
 
 ## Included data
 

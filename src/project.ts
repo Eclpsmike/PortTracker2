@@ -1,3 +1,4 @@
+import { remoteStore } from './serverStorage';
 import { validPortRange } from './portNumbering';
 import { assertStackLayout } from './stacks';
 import { migrateFacilityLocations } from './facilityLocations';
@@ -130,6 +131,7 @@ export function importProject(value: unknown): Project | null {
   return migrateFacilityLocations(migrated);
 }
 export function readProject(): { project: Project; notice: string; blocked: boolean } {
+  const remote=remoteStore();if(remote)return {project:structuredClone(remote.project),notice:'',blocked:false};
   const legacy = readConfiguration();
   const fallback = () => defaultProject(legacy.configuration, readLengthUnit());
   try {
@@ -141,6 +143,7 @@ export function readProject(): { project: Project; notice: string; blocked: bool
   return { project: fallback(), notice: 'Saved project could not be read. The starting rack is shown; the saved project has not been replaced. Import a backup or choose Start new project to save again.', blocked: true };
 }
 export function saveProject(project: Project): boolean {
+  const remote=remoteStore();if(remote){remote.updateProject(project);return true;}
   try { localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(project)); return true; } catch { return false; }
 }
 export interface LocationDraft { name: string; type: 'MDF' | 'IDF'; building: string; floor: string; room: string; notes: string; portPrefix?: string }

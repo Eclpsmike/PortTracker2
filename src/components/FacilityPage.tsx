@@ -1,3 +1,4 @@
+import { remoteStore } from '../serverStorage';
 import { exportProjectBackup, MAX_PROJECT_BACKUP_BYTES, parseProjectBackup, type ImportedProjectBackup } from '../projectBackup';
 import { useEffect, useRef, useState } from 'react';
 import type { Project } from '../project';
@@ -53,7 +54,7 @@ export function FacilityPage({project,onImport,onPlanChange}:{project:Project;on
   useEffect(()=>{
     if(!ready||blocked)return;
     const version=++serial.current;setSaveStatus('Saving…');
-    void saveFloorPlan(project.id,plan).then(()=>{if(version===serial.current)setSaveStatus('Saved in this browser');}).catch(e=>{if(version===serial.current){setSaveStatus('Not saved · export a backup');setError(errorMessage(e));}});
+    void saveFloorPlan(project.id,plan).then(()=>{if(version===serial.current)setSaveStatus(remoteStore()?'Saved to server':'Saved in this browser');}).catch(e=>{if(version===serial.current){setSaveStatus('Not saved · export a backup');setError(errorMessage(e));}});
   },[plan,ready,blocked,project.id]);
   const visible=plan.layers.flatMap(l=>plan.objects.filter(o=>o.layerId===l.id&&objectVisible(plan,o,filters)));
   useEffect(()=>{if(ready&&!blocked)onPlanChange?.(project.id,plan);},[ready,blocked,project.id,plan,onPlanChange]);
@@ -61,6 +62,7 @@ export function FacilityPage({project,onImport,onPlanChange}:{project:Project;on
   useEffect(()=>{setSelected(ids=>ids.filter(id=>plan.objects.some(o=>o.id===id&&objectVisible(plan,o,filters))));},[plan,filters]);
   useEffect(()=>{if(!plan.layers.some(l=>l.id===activeLayer))setActiveLayer(plan.layers[0].id);},[plan.layers,activeLayer]);
   function commit(next:FloorPlan) {
+    if(remoteStore()?.user.role==='viewer'){setError('This account has read-only access.');return false;}
     try {next=parseFloorPlan(syncRouteConnections(next));setError('');setHistory(h=>({past:[...h.past,h.plan].slice(-60),plan:next,future:[]}));return true;}
     catch(e){setError(errorMessage(e));return false;}
   }
@@ -99,7 +101,7 @@ export function FacilityPage({project,onImport,onPlanChange}:{project:Project;on
   function patchLayer(id:string,patch:Partial<FloorLayer>){commit({...plan,layers:plan.layers.map(l=>l.id===id?{...l,...patch}:l)});}
   function reorderLayer(id:string,direction:number){const layers=[...plan.layers],index=layers.findIndex(l=>l.id===id),to=index+direction;if(to<0||to>=layers.length)return;[layers[index],layers[to]]=[layers[to],layers[index]];commit({...plan,layers});}
   function addLayer(){if(!layerName.trim())return;const id=uid('layer');if(commit({...plan,layers:[...plan.layers,{id,name:layerName.trim(),visible:true,locked:false,color:'#3882b5'}]})){setActiveLayer(id);setExpandedLayer(id);setLayerName('');}}
-  async function save(){if(blocked){setError('Import a valid backup before replacing unreadable saved data.');return;}try{await saveFloorPlan(project.id,plan);setSaveStatus('Saved in this browser');setError('');}catch(e){setSaveStatus('Not saved · export a backup');setError(errorMessage(e));}}
+  async function save(){if(blocked){setError('Import a valid backup before replacing unreadable saved data.');return;}try{await saveFloorPlan(project.id,plan);setSaveStatus(remoteStore()?'Saved to server':'Saved in this browser');setError('');}catch(e){setSaveStatus('Not saved · export a backup');setError(errorMessage(e));}}
   async function importProject(file?:File) {
     if(!file)return;
     try {

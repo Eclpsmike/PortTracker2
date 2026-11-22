@@ -2,7 +2,7 @@
 
 ## Implemented now
 
-Templates remain in the project-level `templates` catalog in browser storage. Equipment references a template ID; images and maps are not duplicated per installed device. A complete project backup includes that catalog.
+In local mode, templates remain in the project-level `templates` catalog in browser storage. Server mode stores them as related template/revision/port records with file assets; see [Backend setup](BACKEND.md). Equipment references a template ID; images and maps are not duplicated per installed device. A complete project backup includes that catalog.
 
 New YAML imports retain the original UTF-8 text in `template.source.yaml`, alongside the source filename, manufacturer, and model. Comments, unused fields, and line endings survive ordinary save/export/import. Changes made in the mapper are separate from this original source; downloading the YAML does not regenerate it from the edited map.
 
@@ -37,15 +37,15 @@ This illustrates the envelope, not a complete valid template. The actual export 
 
 Current limits: 8 MiB package file, 512 KiB source YAML, 1 MiB per uploaded image, 8192 pixels per image side / 32 megapixels, 1–256 mapped ports, 30 custom templates, and a shared 4,000,000-byte budget counting encoded image characters plus UTF-8 source bytes. Browser storage may impose a lower limit. Source-only downloads are also available. Unsupported package versions fail explicitly rather than being guessed.
 
-## Recommended backend design — not implemented yet
+## Backend design and implementation
 
-Use PostgreSQL for structured records and relationships, and object storage for image files. Keep the portable JSON format as an import/export boundary, rather than storing the entire project or base64 images as one database row.
+The backend uses PostgreSQL for structured records and relationships, and an asset-store abstraction backed by local server files for images. An S3-compatible adapter can be added later. Keep the portable JSON format as an import/export boundary, rather than storing the entire project or base64 images as one database row.
 
 | Record | Suggested contents |
 | --- | --- |
 | `equipment_templates` | UUID, workspace/tenant ID, name, manufacturer/model, current published revision ID, timestamps |
 | `template_revisions` | UUID, template UUID, revision number, equipment kind/height, default numbering, original YAML as `text`, original filename, parsed source metadata as `jsonb`, importer version, creation/audit details |
-| `template_port_identities` | Stable port UUID and owning template UUID; survives renamed labels, reordering, and later template revisions |
+| `template_revision_ports.port_identity` | Stable port UUID derived from template and physical slot; reused across revisions while existing used-template slot identities remain fixed |
 | `template_revision_ports` | Revision UUID + stable port UUID; display order, label, source section/name/type, function, connector/media defaults, face, image reference, normalized x/y/width/height |
 | `assets` | UUID, tenant ID, immutable object-storage key, SHA-256 hash, MIME type, byte size, pixel dimensions; revision/face associations reference these assets |
 | `equipment` | UUID, rack/frame, bottom U, equipment label, pinned template revision UUID, device-specific numbering/stack details |
@@ -62,12 +62,12 @@ Store commonly filtered data in typed columns and foreign keys. Use JSONB for or
 4. Preserve source provenance separately from edits. Attaching original YAML or changing a label must not silently re-create device-port records.
 5. Keep VLAN, location, connection state, notes, and physical overrides on installed records. Derive inherited panel VLANs and switch patch locations from their connected device ports; avoid competing copies on templates.
 
-The current local app uses template array positions plus numeric port offsets for endpoint identities, and template edits update its instances directly. UUIDs and pinned revisions are a future migration, not a feature of package schema version 1. During migration, first assign each existing template slot a stable port UUID, then map every installed endpoint to a device-port UUID. Rewrite cable endpoints, VLAN/media/detail records and SMB links using that mapping in a validated transaction. Display labels alone are not a safe matching key.
+The local wire format still uses template slot positions and numeric port offsets for compatibility. The server migration assigns stable device/port UUIDs, rewrites relational cable and SMB references, and preserves the legacy labels in exports. Installed equipment records reference template revisions. Saving a used template in server mode asks for confirmation before creating a revision and applying that explicit project edit to its devices. There is no separate per-device revision-upgrade selection screen yet. Template package format remains version 1; server identity annotations in complete project backups are remapped when imported as a new project.
 
 ### Assets, API and import/export
 
 Store images as immutable blobs, with database rows for ownership, hash, size, MIME type and dimensions. Validate and decode uploads on the server; apply tenant authorization to both asset URLs and relational records. Deduplicate within authorized scope. Do not fetch arbitrary image URLs supplied by a package. Keep original YAML bounded and parse it safely without executable tags or aliases.
 
-A backend export assembles one revision and its image blobs into the same portable package. Import first validates and stages assets, then atomically creates a new template/revision and port records; clean up staged assets if the transaction fails. Remap package-local IDs to new database UUIDs by default. Updating an existing library entry should be a separate, explicit revision workflow.
+A backend project load/export assembles relational records and image blobs into the existing portable format. Template-only exports use the loaded template. Import first validates and stages assets, then atomically creates a new template/revision and port records; clean up staged assets if the transaction fails. Remap package-local IDs to new database UUIDs by default. Updating an existing library entry should be a separate, explicit revision workflow.
 
 Package `schemaVersion` describes the file format, not a template's revision number. If stable exported port IDs or additional component types require a format change, introduce a new package version with a tested v1 migration. Keep any future project backup format separate from a single-template package. Server-side validation remains authoritative even when the browser already checked the file.

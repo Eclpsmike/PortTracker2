@@ -1,5 +1,8 @@
 # PortTracker
 
+PortTracker now supports a PostgreSQL-backed shared workspace with login, roles, revision-checked saves, file storage, and migration from project backups. See [Backend setup](docs/BACKEND.md) for setup, credentials, development commands, and testing. Set `VITE_STORAGE_MODE=server` for the backend or `local` for the browser-only workflow.
+
+
 A standalone React + Vite + TypeScript network rack workspace with saved MDF/IDF locations. The default view shows IDF-01 / Building A, two 42U racks, and selected cross-rack connection CR-0018: CAB-A01 / PP-A04 / Port 18 → CAB-A02 / SW-B01 / Port 18 on VLAN 30.
 
 ## Run locally
@@ -176,7 +179,7 @@ Each template card offers **Export template**, which downloads a portable JSON p
 
 New YAML imports preserve the original source, including comments and fields the app does not yet use. **Source YAML** downloads that original file; mapper edits are saved separately. For older templates, **Edit template → Source YAML → Attach source YAML** can retain a matching original file without altering existing ports. Previously discarded source cannot be reconstructed automatically. Attaching source does not add its missing ports; use **Add port** or create a new template import.
 
-See [Template storage and backend design](docs/TEMPLATE_STORAGE.md) for the package format and recommended PostgreSQL, object storage, stable port IDs, and template revision model. The app still uses local browser storage; this document describes the future backend.
+See [Template storage and backend design](docs/TEMPLATE_STORAGE.md) for the package format and recommended PostgreSQL, object storage, stable port IDs, and template revision model. The backend implements relational storage, file assets, and template revisions; browser-only mode remains available.
 
 Limits: 512 KB per YAML file, 1 MB per image, 8192 pixels per side / 32 megapixels, 30 custom templates, and 4 MB total encoded image data plus retained source YAML. Browser storage can impose a lower limit; the existing storage notice and project export remain available if saving fails. SVG files, YAML aliases, duplicate keys/names, and malformed definitions are rejected. Images are not automatically downloaded, and the app does not require a NetBox server.
 
@@ -250,7 +253,7 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/porttracker-browsers npm run test:ui
 
 The page follows the approved dark header, light side panels, paired racks, overhead pathway, and populated connection inspector. It is **not pixel-perfect**: SVG equipment is cleaner and less photorealistic, the demo contains 32 actual cables, and the starting demo layout leaves 17U free below the switches, which can now be populated from templates. The target mockup's inconsistent row numbering and illustrative counts are not copied. Secondary inspector controls scroll on short desktop viewports.
 
-Length results remain illustrative, including after editing example calibration. They use the rack width, rack spacing, U height, an example port-field width, tray rise, entry/bend allowance, and slack. They do not replace measured equipment templates or a field survey. The full project is persisted locally. There is no backend, authentication, discovery, Android build, or cross-device sync in this milestone. MDF–IDF uplinks and measured inter-location pathways remain future work; current routing is within a location.
+Length results remain illustrative, including after editing example calibration. They use the rack width, rack spacing, U height, an example port-field width, tray rise, entry/bend allowance, and slack. They do not replace measured equipment templates or a field survey. Local mode persists projects in the browser. Server mode persists projects in PostgreSQL and server-managed asset storage with authenticated access across browsers. Live network discovery and Android builds are not implemented. MDF–IDF uplinks and measured inter-location pathways remain future work; current routing is within a location.
 
 ## Fiber ports and cables
 

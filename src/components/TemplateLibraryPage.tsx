@@ -1,3 +1,4 @@
+import { remoteStore } from '../serverStorage';
 import { createTemplatePackage, exportableTemplate, importTemplatePackage, readTemplatePackage, templatePackageFilename } from '../templatePackage';
 import { downloadFile } from '../facility/storage';
 import { AddTemplatePort, type ManualPortInput } from './AddTemplatePort';
@@ -169,6 +170,7 @@ function TemplateEditor({ initial, project, onSave, onCancel }: { initial?: Equi
         ...(rearImage&&{rearImage}),
         description: `Imported ${definition.manufacturer} ${definition.model}. ${names.length} mapped ports; routing follows the side of each socket.`,
         source: { manufacturer: definition.manufacturer, model: definition.model, filename, ...(sourceYaml && {yaml:sourceYaml}) }, ports: (ports as TemplatePort[]).map(p => ({ ...p, ...portMetadata[p.name!], label: labels[p.name!]?.trim() || undefined, media: portMetadata[p.name!]?.function === 'console' ? undefined : media[p.name!] ?? { kind: 'copper' }, interfaceType: definition.ports.find(source => source.name === p.name)?.type ?? 'other' })) };
+      if(remoteStore()&&initial&&templateUsage(project,initial.id)>0&&!window.confirm(`Save a new template revision and apply it to ${templateUsage(project,initial.id)} installed devices? Existing physical port identities and connections are preserved.`))return;
       onSave(saveEquipmentTemplate(project, template));
     } catch (e) { setError((e as Error).message); }
   }
