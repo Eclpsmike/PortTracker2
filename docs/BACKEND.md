@@ -18,3 +18,9 @@ Implementation checkpoints are committed separately: foundation, schema, asset s
 Migration 002 stores projects/configuration, buildings, frames, racks, equipment, physical device ports, cable endpoints, templates/revisions/geometry, floor/layers/map objects/SMB ports, and change events in related tables. Extensible presentation fields remain JSONB on their owning record. Uploaded binary files are handled separately. Foreign keys include project ownership; a physical port can occur in only one cable endpoint. Published template revisions reject updates. Coordinates are normalized and bounded.
 
 Legacy display IDs remain available for backup compatibility. Server UUIDs identify records. Device identity metadata travels with the frontend model so rack moves and port-range changes preserve physical endpoint UUIDs. Database migrations run with a separate owner role; the API has data permissions only.
+
+## Asset storage
+
+Migration 003 records project-owned assets. `AssetStore` validates/decode-checks raster images, checks PDF/SVG signatures for original files, hashes content, and writes immutable files atomically under `ASSET_ROOT/<project UUID>/<SHA-256>`. Images are decoded with a pixel limit; files are capped at 40 MB. Repeated images in one project share a file. Files and source YAML are never fetched from arbitrary URLs. Original SVG files are retained for download only, not served as executable pages.
+
+Database records contain asset references; exports hydrate them into embedded data URLs and verify hashes. Assets are created before the project transaction commits. A failed transaction can leave an unreferenced content-addressed file, but never a committed reference to an unwritten file. Retain those files until an explicit garbage-collection policy is implemented; never delete files merely because the current revision no longer uses them. Back up the database and asset directory as one logical unit.
