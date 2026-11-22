@@ -14,7 +14,8 @@
     "server:dev": "node --env-file=server/.env --import tsx --watch server/index.ts",
     "db:migrate": "node --env-file=server/.env.migrations --import tsx server/migrate.ts",
     "db:provision": "node --import tsx server/provision.ts",
-    "test:server": "node --env-file=server/.env --import tsx --test server/tests/*.test.ts"
+    "test:server": "node --env-file=server/.env --import tsx --test server/tests/*.test.ts",
+    "db:import": "node --env-file=server/.env --import tsx server/import-project.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

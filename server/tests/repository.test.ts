@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { configFromEnv } from '../config';
+import { createPool } from '../db';
+import { AssetStore } from '../assets';
+import { ProjectRepository, withoutServerIds } from '../repository';
+import { createProjectBackup, parseProjectBackup } from '../../src/projectBackup';
+import { locationPortsFixture } from '../../tests/location-ports-fixture';
+import { stackProject } from '../../tests/stack-fixture';
+import { moveEquipment, setEquipmentPortStart } from '../../src/model';
+test('relational import/export preserves all data, port identities and optimistic concurrency',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'pt-repository-')),db=createPool(configFromEnv().databaseUrl),repo=new ProjectRepository(db,new AssetStore(root));let id:string|undefined;
+  try {
+    const {project,plan}=locationPortsFixture();project.id=randomUUID();project.templates=stackProject().templates;
+    project.templates![0].source!.yaml='manufacturer: Juniper\nmodel: Test switch\nu_height: 1\ninterfaces:\n  - {name: "ge-0/0/[0-47]", type: 1000base-t}\n';
+    project.templates![0].rearImage={imageSrc:project.templates![0].imageSrc,imageWidth:824,imageHeight:77};
+    plan.background.original={name:'original.png',data:project.templates![0].imageSrc};
+    const backup=createProjectBackup(project,plan),created=await repo.save(backup,{actor:'test'});id=created.id;
+    const loaded=await repo.load(id);const canonical=parseProjectBackup(backup);assert.deepEqual(withoutServerIds(loaded.backup),createProjectBackup(canonical.project,canonical.facilityPlan));
+    const e=loaded.backup.locations[0].layout.racks[0].equipment[0],oldId=e.databaseId,portIds=e.databasePortIds;
+    const frame=loaded.backup.locations[0];frame.layout=moveEquipment(frame.layout,'R1','P1','R1',6);
+    frame.layout=setEquipmentPortStart(frame.layout,'R1','P1',100);
+    await repo.save(loaded.backup,{id,expectedRevision:loaded.revision,actor:'test'});
+    const updated=await repo.load(id),after=updated.backup.locations[0].layout.racks[0].equipment[0];
+    assert.equal(after.databaseId,oldId);assert.deepEqual(after.databasePortIds,portIds);
+    assert.equal(updated.backup.locations[0].layout.cables[0].from.port,100);
+    await assert.rejects(()=>repo.save(loaded.backup,{id,expectedRevision:loaded.revision,actor:'stale'}),/another session/);
+    const bad=structuredClone(updated.backup);bad.locations[0].layout.cables.push({...bad.locations[0].layout.cables[0],id:'duplicate'});
+    await assert.rejects(()=>repo.save(bad,{id,expectedRevision:updated.revision,actor:'invalid'}));
+    assert.equal((await repo.load(id)).revision,updated.revision);
+    const changed=structuredClone(updated.backup);changed.templates![0].name='Revised name';
+    await repo.save(changed,{id,expectedRevision:updated.revision,actor:'template-edit'});
+    assert.equal((await db.query('SELECT count(*)::int AS n FROM template_revisions WHERE project_id=$1',[id])).rows[0].n,3);
+  } finally {if(id)await db.query('DELETE FROM projects WHERE id=$1',[id]);await db.end();await rm(root,{recursive:true,force:true});}
+});

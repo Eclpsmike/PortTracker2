@@ -4,7 +4,7 @@ import { findEquipmentTemplate, compatibleTemplate, templatePort, portFace, inte
 export type Side = 'left' | 'right';
 export type EquipmentKind = 'patch-panel' | 'switch';
 export interface SwitchStack { id: string; name: string; managementAddress: string; interfaceNaming: 'juniper' | 'cisco' | 'template' }
-export interface Equipment { id: string; kind: EquipmentKind; label: string; bottomU: number; heightU: number; portCount: number; portStart?: number; portStartOverride?: boolean; firstNumber?: number; templateId?: string; stack?: { stackId: string; member: number } }
+export interface Equipment { databaseId?: string; databasePortIds?: string[]; templateRevisionId?: string; id: string; kind: EquipmentKind; label: string; bottomU: number; heightU: number; portCount: number; portStart?: number; portStartOverride?: boolean; firstNumber?: number; templateId?: string; stack?: { stackId: string; member: number } }
 export const MAX_RACK_UNITS = 100;
 export const firstPortNumber = (equipment: Pick<Equipment, 'portStart'>) => equipment.portStart ?? 1;
 export const portIndex = (equipment: Equipment, port: number) => port - firstPortNumber(equipment);
