@@ -1,4 +1,4 @@
-import { objectBounds, translateObject, type Background, type FloorPlan, type Point } from './model';
+import { connectorSides, objectBounds, translateObject, type Background, type FloorPlan, type Point } from './model';
 
 export interface CropBox extends Point { width: number; height: number }
 export const fullCrop = (background: Background): CropBox => ({ x: 0, y: 0, width: background.width, height: background.height });
@@ -27,7 +27,7 @@ export function rotateFloorPlan(plan: FloorPlan, clockwise: boolean, src: string
         const corners=[rotate(o),rotate({x:o.x+o.width!,y:o.y+o.height!})];
         return {...o,x:Math.min(...corners.map(p=>p.x)),y:Math.min(...corners.map(p=>p.y)),width:o.height,height:o.width};
       }
-      if(o.points){const points=o.points.map(rotate);return {...o,...points[0],points};}
+      if(o.points){const points=o.points.map(rotate);return {...o,...points[0],points,...(o.sourceSide&&{sourceSide:connectorSides[(connectorSides.indexOf(o.sourceSide)+(clockwise?1:3))%4]}),...(o.destinationSide&&{destinationSide:connectorSides[(connectorSides.indexOf(o.destinationSide)+(clockwise?1:3))%4]})};}
       return {...o,...rotate(o),rotation:((o.rotation+(clockwise?90:-90))%360+360)%360};
     }),calibration:plan.calibration?{...plan.calibration,a:rotate(plan.calibration.a),b:rotate(plan.calibration.b)}:null};
 }

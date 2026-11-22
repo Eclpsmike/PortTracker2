@@ -1,5 +1,5 @@
-import { equipmentTemplate, templatePort, type EquipmentTemplate } from './equipmentTemplates';
-import { hasVerticalManagement, type Rack, type Layout, type Endpoint, type Cable, type Equipment, resolveEndpoint, cableRoute, equipmentTopU, portIndex, legacyFace, schematicSocket } from './model';
+import { equipmentTemplate, templatePort, portFace, type EquipmentTemplate } from './equipmentTemplates';
+import { hasVerticalManagement, type Rack, type Layout, type Endpoint, type Cable, type Equipment, resolveEndpoint, endpointFace, cableRoute, equipmentTopU, portIndex, legacyFace, schematicSocket } from './model';
 // One shared scale for 19-inch equipment faces and 1.75-inch rack units.
 const FACE_WIDTH = 334;
 export const UNIT = FACE_WIDTH * 1.75 / 19, RACK_WIDTH = 430, RACK_GAP = 0, TOP = 108, MARGIN = 24;
@@ -23,17 +23,18 @@ export const EQUIPMENT_FACE = { x: 53, y: .25, width: FACE_WIDTH, height: UNIT -
 export const equipmentFace = (e: Equipment) => ({ ...EQUIPMENT_FACE, height: UNIT * e.heightU - .5 });
 // Fit without stretching or cropping. The image and every socket overlay must
 // share these bounds, including any space around the fitted image.
-export function equipmentImageBounds(equipment: Equipment, templates: readonly EquipmentTemplate[] = []) {
+export function equipmentImageBounds(equipment: Equipment, templates: readonly EquipmentTemplate[] = [], side:'front'|'rear'='front') {
   const template = equipmentTemplate(equipment, templates);
+  const image=side==='rear'?template?.rearImage:template;
   const face = equipmentFace(equipment);
-  if (!template) return face;
-  const scale = Math.min(face.width / template.imageWidth, face.height / template.imageHeight);
-  const width = template.imageWidth * scale, height = template.imageHeight * scale;
+  if (!image) return face;
+  const scale = Math.min(face.width / image.imageWidth, face.height / image.imageHeight);
+  const width = image.imageWidth * scale, height = image.imageHeight * scale;
   return { x: face.x + (face.width - width) / 2, y: face.y + (face.height - height) / 2, width, height };
 }
 export function portSize(equipment: Equipment, port: number, templates: readonly EquipmentTemplate[] = []) {
   const socket = templatePort(equipment, port, templates);
-  const bounds = equipmentImageBounds(equipment, templates);
+  const bounds = equipmentImageBounds(equipment, templates, portFace(equipment, port, templates));
   return socket ? { width: socket.width * bounds.width, height: socket.height * bounds.height } : { width: 8.8, height: legacyFace(equipment) ? equipment.kind === 'switch' ? 6 : 10 : Math.min(10, bounds.height / Math.ceil(equipment.portCount / 24) * .65) };
 }
 export function equipmentPosition(layout: Layout, rackId: string, equipment: Equipment, rackIds: string[]) {
@@ -44,7 +45,7 @@ export function portPoint(layout: Layout, ep: Endpoint, rackIds: string[]) {
   const { equipment } = resolveEndpoint(layout, ep);
   const origin = equipmentPosition(layout, ep.rackId, equipment, rackIds);
   const socket = templatePort(equipment, ep.port, layout.templates);
-  const bounds = equipmentImageBounds(equipment, layout.templates);
+  const bounds = equipmentImageBounds(equipment, layout.templates, endpointFace(layout, ep));
   if (socket) return { x: origin.x + bounds.x + socket.x * bounds.width, y: origin.y + bounds.y + socket.y * bounds.height };
   if (!legacyFace(equipment)) {
     const point = schematicSocket(equipment, ep.port);
@@ -54,12 +55,17 @@ export function portPoint(layout: Layout, ep: Endpoint, rackIds: string[]) {
   const y = origin.y + UNIT / 2 + (equipment.kind === 'switch' ? portIndex(equipment, ep.port) < 24 ? -3.7 : 3.7 : 0);
   return { x, y };
 }
-export function cablePoints(layout: Layout, cable: Cable, rackIds: string[]) {
+export function cablePoints(layout: Layout, cable: Cable, rackIds: string[], face: 'front' | 'rear' = 'front') {
   const a = portPoint(layout, cable.from, rackIds), b = portPoint(layout, cable.to, rackIds);
   const { sides, overhead } = cableRoute(layout, cable);
   const lane = (Number(cable.id.replace(/\D/g, '')) % 5 - 2) * 2.2;
-  const manager = (rackId: string, side: string) => { const inset = hasVerticalManagement(layout.racks.find(r => r.id === rackId)!) ? 26 : 45; return rackOriginX(layout, rackId, rackIds) + (side === 'left' ? inset : RACK_WIDTH - inset) + lane; };
+  const manager = (rackId: string, side: string) => { const inset = hasVerticalManagement(layout.racks.find(r => r.id === rackId)!) ? 26 : 45; return rackOriginX(layout, rackId, rackIds) + ((face === 'rear' ? side === 'right' : side === 'left') ? inset : RACK_WIDTH - inset) + lane; };
   const ax = manager(cable.from.rackId, sides.from), bx = manager(cable.to.rackId, sides.to);
+  const fromVisible = endpointFace(layout, cable.from) === face, toVisible = endpointFace(layout, cable.to) === face;
+  if (!fromVisible && !toVisible) return [];
+  // Stop at the manager when the other endpoint is on the opposite face.
+  if (!toVisible) return [a, { x: ax, y: a.y }, { x: ax, y: a.y - 18 }];
+  if (!fromVisible) return [b, { x: bx, y: b.y }, { x: bx, y: b.y - 18 }];
   return overhead ? [a, { x: ax, y: a.y }, { x: ax, y: 39 + lane }, { x: bx, y: 39 + lane }, { x: bx, y: b.y }, b] : [a, { x: ax, y: a.y }, { x: ax, y: b.y }, b];
 }
 export function roundedPath(points: { x: number; y: number }[], radius = 13) {

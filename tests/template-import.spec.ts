@@ -11,8 +11,8 @@ async function uploadPanel(page: Page) {
   await page.getByLabel('Device definition YAML').setInputFiles(assets + '24-port-copper-patch-panel.yaml');
   await expect(page.getByText('24 ports included', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Device definition YAML')).toHaveValue(/24-port-copper-patch-panel\.yaml$/);
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles(assets + 'generic-24-port-copper-patch-panel.front.png');
-  await expect(page.getByLabel('Equipment image', { exact: true })).toHaveValue(/generic-24-port-copper-patch-panel\.front\.png$/);
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles(assets + 'generic-24-port-copper-patch-panel.front.png');
+  await expect(page.getByLabel('Front equipment image', { exact: true })).toHaveValue(/generic-24-port-copper-patch-panel\.front\.png$/);
   await page.getByLabel('Template name', { exact: true }).fill('Lab patch panel');
   await page.getByRole('button', { name: 'Continue to port mapping' }).click();
   await page.getByText('Start with a regular grid', { exact: true }).click();
@@ -102,7 +102,7 @@ test('mobile switch import excludes uplinks and preserves mapped odd/even ports'
   await openImporter(page);
   await page.getByLabel('Device definition YAML').setInputFiles(assets + 'US-48.yaml');
   await expect(page.getByText('48 ports included', { exact: true })).toBeVisible();
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles(assets + 'ubiquiti-unifi-switch-48-gen1.front.png');
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles(assets + 'ubiquiti-unifi-switch-48-gen1.front.png');
   await page.getByLabel('Template name', { exact: true }).fill('Imported switch');
   await page.getByRole('button', { name: 'Continue to port mapping' }).click();
   await page.getByText('Start with a regular grid', { exact: true }).click();
@@ -136,7 +136,7 @@ test('invalid definitions, unsupported images, unmapped and overlapping sockets 
   await page.getByLabel('Device definition YAML').setInputFiles({ name: 'bad.yaml', mimeType: 'text/yaml', buffer: Buffer.from('model: [') });
   await expect(page.getByRole('alert')).toContainText('Cannot read YAML');
   await expect(page.getByRole('button', { name: 'Continue to port mapping' })).toBeDisabled();
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles({ name: 'bad.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') });
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles({ name: 'bad.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg/>') });
   await expect(page.getByRole('alert')).toContainText('SVG files are not supported');
   await uploadPanel(page);
   await page.getByLabel('Grid socket width (%)', { exact: true }).fill('20');
@@ -202,7 +202,7 @@ test('template mapping controls numbering and preserves used sockets when the st
   await expect(page.getByRole('button', { name: 'Port 23, connected', exact: true })).toBeVisible();
   const project = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
   expect(project.templates[0].portStart).toBe(0);
-  expect(project.locations[0].layout.cables.find((c: { id: string }) => c.id === 'NEW-0001').from.port).toBe(23);
+  expect(project.locations[0].layout.cables.find((c: { id: string }) => c.id === 'CBL-0001').from.port).toBe(23);
   await page.reload();
   await page.goto('/#/configuration/templates');
   await page.getByRole('button', { name: 'Edit template Lab patch panel' }).click();
@@ -216,7 +216,7 @@ test('chosen filenames remain visible when returning from mapping and update on 
   await uploadPanel(page);
   await page.getByRole('button', { name: 'Back to files', exact: true }).click();
   const definition = page.getByLabel('Device definition YAML');
-  const image = page.getByLabel('Equipment image', { exact: true });
+  const image = page.getByLabel('Front equipment image', { exact: true });
   await expect(definition).toHaveValue(/24-port-copper-patch-panel\.yaml$/);
   await expect(image).toHaveValue(/generic-24-port-copper-patch-panel\.front\.png$/);
   await expect(page.getByRole('button', { name: 'Continue to port mapping' })).toBeEnabled();

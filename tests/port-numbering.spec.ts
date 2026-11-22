@@ -60,6 +60,7 @@ test('zero-based switch ports work in bulk selection, cables, moves and backup r
   await page.getByRole('tab', { name: 'Equipment', exact: true }).click();
   await page.getByRole('button', { name: 'Move equipment', exact: true }).click();
   await page.getByRole('combobox', { name: 'Destination rack', exact: true }).selectOption('CAB-A02');
+  page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button', { name: 'Save equipment position', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Equipment', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Manage ports', exact: true }).click();
@@ -68,7 +69,7 @@ test('zero-based switch ports work in bulk selection, cables, moves and backup r
   const backup = await readFile((await (await backupPromise).path())!);
   const project = JSON.parse(backup.toString()) as Project;
   expect(project.locations[0].layout.racks[1].equipment.find(e => e.id === 'SW-ZERO')!.portStart).toBe(0);
-  expect(project.locations[0].layout.cables.find(c => c.id === 'NEW-0001')!.from.port).toBe(0);
+  expect(project.locations[0].layout.cables.find(c => c.id === 'CBL-0001')!.from.port).toBe(0);
   expect(project.locations[0].layout.portVlans!['CAB-A02/SW-ZERO/0']).toBe(99);
   expect(project.locations[0].layout.portVlans!['CAB-A02/SW-ZERO/48']).toBeUndefined();
   await page.reload();

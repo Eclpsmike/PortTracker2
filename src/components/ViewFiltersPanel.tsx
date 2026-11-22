@@ -1,5 +1,5 @@
 import type { FacilityLocation } from '../configuration';
-import { type Layout, type Vlan, portNumbers, portVlan } from '../model';
+import { type Layout, type Vlan, portNumbers, portVlan, isNetworkPort } from '../model';
 import { portLocation } from '../facilityLocations';
 import { EMPTY_VIEW_FILTERS, type ViewFilters } from '../viewFilters';
 import { Icon } from './Icon';
@@ -17,7 +17,7 @@ export function ViewFiltersPanel({ layout, vlans, locations, value, onChange, on
   const vlanCounts = new Map<number | null, number>(), locationCounts = new Map<string, number>();
   for (const ep of endpoints) {
     const vlan = portVlan(layout, ep), location = portLocation(layout, ep);
-    vlanCounts.set(vlan, (vlanCounts.get(vlan) ?? 0) + 1);
+    if (isNetworkPort(layout, ep)) vlanCounts.set(vlan, (vlanCounts.get(vlan) ?? 0) + 1);
     locationCounts.set(location, (locationCounts.get(location) ?? 0) + 1);
   }
   const active = value.vlans.length + value.locations.length;

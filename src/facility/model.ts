@@ -1,5 +1,8 @@
 export type Point = { x: number; y: number };
-export const objectKinds = ['location', 'outlet', 'plate', 'idf', 'ap', 'camera', 'printer', 'device', 'cable', 'tray', 'conduit', 'label'] as const;
+export const connectorSides = ['top', 'right', 'bottom', 'left'] as const;
+export type ConnectorSide = typeof connectorSides[number];
+export type ObjectConnector = { objectId: string; side: ConnectorSide; point: Point };
+export const objectKinds = ['location', 'outlet', 'plate', 'idf', 'ap', 'camera', 'speaker', 'printer', 'device', 'cable', 'tray', 'conduit', 'label'] as const;
 export type ObjectKind = typeof objectKinds[number];
 export const statuses = ['planned', 'unmapped', 'partially mapped', 'verified'] as const;
 export type MappingStatus = typeof statuses[number];
@@ -10,8 +13,11 @@ export interface FloorPort {
 export interface FloorObject extends Point {
   id: string; kind: ObjectKind; name: string; layerId: string; color?: string; notes: string; rotation: number;
   width?: number; height?: number; locationId?: string; locationType?: string; ports?: FloorPort[]; points?: Point[];
+  locationMode?: 'auto' | 'manual';
   status?: 'planned' | 'verified'; sourceId?: string; destinationId?: string; idfId?: string;
+  sourceSide?: ConnectorSide; destinationSide?: ConnectorSide;
   symbolWidth?: number;
+  lineWeight?: number;
   labelStyle?: { fontSize?: number; position?: LabelPosition; offsetX?: number; offsetY?: number };
 }
 export type LabelPosition = 'above' | 'below' | 'left' | 'right' | 'center' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -26,12 +32,13 @@ export interface FloorPlan {
   background: Background; layers: FloorLayer[]; objects: FloorObject[];
   symbolSize?: 'small' | 'medium' | 'large';
   symbolWidth?: number;
+  toolDefaults?: Partial<Record<ObjectKind, { symbolWidth?: number; lineWeight?: number }>>;
   grid?: { spacing: number; unit: 'plan' | 'ft' | 'm' };
   calibration: { a: Point; b: Point; distance: number; unit: 'ft' | 'm' } | null;
 }
 export interface FloorFilters { location: string; type: string; status: string; idf: string; vlan: string }
 export const emptyFilters: FloorFilters = { location: '', type: '', status: '', idf: '', vlan: '' };
-export const kindLabels: Record<ObjectKind, string> = { location: 'Location box', outlet: 'Outlet', plate: 'Wall plate', idf: 'IDF / Rack', ap: 'Access point', camera: 'Camera', printer: 'Printer', device: 'Device', cable: 'Cable path', tray: 'Cable tray', conduit: 'Conduit', label: 'Label' };
+export const kindLabels: Record<ObjectKind, string> = { location: 'Location box', outlet: 'SMB', plate: 'Wall plate', idf: 'IDF / Rack', ap: 'Access point', camera: 'Camera', speaker: 'Speaker', printer: 'Printer', device: 'Device', cable: 'Cable path', tray: 'Cable tray', conduit: 'Conduit', label: 'Label' };
 export const uid = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 export const isRoute = (o: Pick<FloorObject, 'kind'>) => ['cable', 'tray', 'conduit'].includes(o.kind);
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -40,6 +47,49 @@ export const unitsPerPoint = (plan: FloorPlan) => plan.calibration ? plan.calibr
 // Width is stored in drawing coordinates so zoom and grid changes cannot resize symbols relative to the plan.
 export const symbolWidthInPlanUnits = (plan: FloorPlan, object?: FloorObject) => object?.symbolWidth ?? plan.symbolWidth ?? 28*{small:.7,medium:1,large:1.3}[plan.symbolSize??'medium'];
 export const isSymbol = (o: Pick<FloorObject, 'kind'>) => o.kind !== 'location' && o.kind !== 'label' && !isRoute(o);
+export const toolSymbolWidth = (plan: FloorPlan, kind: ObjectKind) => plan.toolDefaults?.[kind]?.symbolWidth ?? symbolWidthInPlanUnits(plan);
+export const routeLineWeight = (object: Pick<FloorObject, 'kind' | 'lineWeight'>) => object.lineWeight ?? (object.kind === 'tray' ? 4 : 2.5);
+export const toolLineWeight = (plan: FloorPlan, kind: ObjectKind) => plan.toolDefaults?.[kind]?.lineWeight ?? routeLineWeight({kind});
+// Connect to the marker face, independently of label size and placement.
+export function objectConnectors(plan: FloorPlan, object: FloorObject): ObjectConnector[] {
+  if (!isSymbol(object)) return [];
+  const radius = symbolWidthInPlanUnits(plan, object) / 2;
+  return connectorSides.map(side => ({objectId: object.id, side, point: {
+    x: object.x + (side === 'left' ? -radius : side === 'right' ? radius : 0),
+    y: object.y + (side === 'top' ? -radius : side === 'bottom' ? radius : 0),
+  }}));
+}
+export function nearestConnector(plan: FloorPlan, objects: FloorObject[], point: Point, tolerance: number): ObjectConnector | undefined {
+  let nearest: ObjectConnector | undefined, best = tolerance;
+  for (const object of objects) for (const connector of objectConnectors(plan, object)) {
+    const p = connector.point;
+    if (p.x < 0 || p.y < 0 || p.x > plan.background.width || p.y > plan.background.height) continue;
+    const gap = distance(point, p);
+    if (gap <= best) { nearest = connector; best = gap; }
+  }
+  return nearest;
+}
+export function connectRouteEndpoint(route: FloorObject, end: 'source' | 'destination', connector?: ObjectConnector): FloorObject {
+  const points = [...route.points!], index = end === 'source' ? 0 : points.length - 1;
+  if (connector) points[index] = connector.point;
+  return {...route, points, ...(end === 'source' && points[0]),
+    [end + 'Id']: connector?.objectId, [end + 'Side']: connector?.side};
+}
+export function syncRouteConnections(plan: FloorPlan): FloorPlan {
+  const objects = new Map(plan.objects.map(o => [o.id, o]));
+  return {...plan, objects: plan.objects.map(route => {
+    if (!isRoute(route)) return route;
+    let next = route;
+    for (const end of ['source', 'destination'] as const) {
+      const side = route[end === 'source' ? 'sourceSide' : 'destinationSide'];
+      if (!side) continue;
+      const target = objects.get(route[end === 'source' ? 'sourceId' : 'destinationId'] ?? '');
+      const connector = target && objectConnectors(plan, target).find(c => c.side === side);
+      if (connector) next = connectRouteEndpoint(next, end, connector);
+    }
+    return next;
+  })};
+}
 export function itemLabelLayout(object: FloorObject) {
   const room=object.kind==='location',style=object.labelStyle??{},fontSize=style.fontSize??(room?11:object.kind==='label'?15:10);
   const maxChars=room?28:22,text=object.name.length>maxChars?object.name.slice(0,maxChars-1)+'…':object.name;
@@ -90,9 +140,21 @@ export function lengthLabel(plan: FloorPlan, points: Point[], unit = plan.calibr
   if (unit !== plan.calibration!.unit) length *= unit === 'ft' ? 1 / .3048 : .3048;
   return `${length.toFixed(1)} ${unit}`;
 }
+export const inheritsLocation = (object: FloorObject) => object.kind !== 'location' && (object.locationMode === 'auto' || (object.locationMode === undefined && !object.locationId));
+export function effectiveLocationId(plan: FloorPlan, object: FloorObject): string | undefined {
+  if (!inheritsLocation(object)) return object.locationId;
+  // Marker anchors determine their room; a route must lie entirely inside it.
+  const points = isRoute(object) ? object.points ?? [object] : [object];
+  let smallest: FloorObject | undefined;
+  for (const room of plan.objects) {
+    if (room.kind !== 'location' || !points.every(p => p.x >= room.x && p.y >= room.y && p.x <= room.x + room.width! && p.y <= room.y + room.height!)) continue;
+    if (!smallest || room.width! * room.height! < smallest.width! * smallest.height!) smallest = room;
+  }
+  return smallest?.id;
+}
 export function objectVisible(plan: FloorPlan, object: FloorObject, filters: FloorFilters) {
   if (!plan.layers.find(l => l.id === object.layerId)?.visible) return false;
-  if (filters.location && object.locationId !== filters.location && object.id !== filters.location) return false;
+  if (filters.location && effectiveLocationId(plan, object) !== filters.location && object.id !== filters.location) return false;
   if (filters.type && object.kind !== filters.type) return false;
   if (filters.idf && object.idfId !== filters.idf && !object.ports?.some(p => p.idfId === filters.idf)) return false;
   if (filters.status && !object.ports?.some(p => p.mappingStatus === filters.status)) return false;
@@ -107,28 +169,56 @@ export function objectBounds(o: FloorObject) {
 export function translateObject(o: FloorObject, dx: number, dy: number): FloorObject {
   return { ...o, x: o.x + dx, y: o.y + dy, ...(o.points && { points: o.points.map(p => ({ x: p.x + dx, y: p.y + dy })) }) };
 }
-export function orthogonalVertex(points: Point[], index: number, point: Point) {
-  const next = points.map(p => ({ ...p })), old = points[index];
-  for (const neighbor of [index - 1, index + 1]) {
-    if (!next[neighbor]) continue;
-    if (points[neighbor].x === old.x) next[neighbor].x = point.x;
-    else next[neighbor].y = point.y;
-  }
-  next[index] = point;
-  return next;
+export function moveRouteVertex(points: Point[], index: number, point: Point) {
+  return points.map((p, i) => ({ ...(i === index ? point : p) }));
 }
-export function orthogonalSegment(a: Point, b: Point): Point[] {
-  if (a.x === b.x || a.y === b.y) return [b];
-  return [{ x: b.x, y: a.y }, b];
+export const smbPortCounts = [1,2,3,4,5,6,7,8] as const;
+function nextSmbName(plan: FloorPlan, preferred = 1) {
+  const used = new Set(plan.objects.flatMap(o => [o.name, ...(o.ports?.map(p => p.label) ?? [])]));
+  let n = Number.isSafeInteger(preferred) && preferred > 0 && preferred < Number.MAX_SAFE_INTEGER - 10000 ? preferred : 1;
+  while (true) {
+    const name = `SMB-${String(n++).padStart(3, '0')}`;
+    if (!used.has(name) && smbPortCounts.every(i => !used.has(`${name}-${i}`))) return name;
+  }
+}
+export function resizeSmbPorts(plan: FloorPlan, object: FloorObject, count: number): FloorPort[] {
+  if (object.kind !== 'outlet' || !Number.isInteger(count) || count < 1 || count > 8) throw new Error('SMBs require 1 to 8 ports.');
+  const ports = (object.ports ?? []).slice(0, count);
+  const labels = new Set([...plan.objects.flatMap(o => o.ports?.map(p => p.label) ?? []), ...ports.map(p => p.label)]);
+  while (ports.length < count) {
+    let n = ports.length + 1;
+    const prefix = object.name.slice(0, 180);
+    while (labels.has(`${prefix}-${n}`)) n++;
+    const label = `${prefix}-${n}`;
+    labels.add(label);
+    ports.push({ id: uid('port'), label, medium: 'copper', mappingStatus: 'unmapped', notes: '' });
+  }
+  return ports;
+}
+function migrateSmbNames(plan: FloorPlan): FloorPlan {
+  let next = plan;
+  for (const object of plan.objects) {
+    const match = /^PORT-(\d{3,})$/.exec(object.name);
+    if (object.kind !== 'outlet' || !match) continue;
+    const name = nextSmbName(next, Number(match[1]));
+    const updated = { ...object, name, ports: object.ports!.map((p, i) => p.label === object.name ? { ...p, label: `${name}-${i+1}` } : p) };
+    next = { ...next, objects: next.objects.map(o => o.id === object.id ? updated : o) };
+  }
+  return next;
 }
 export function createObject(plan: FloorPlan, kind: ObjectKind, point: Point, layerId: string, count = 1): FloorObject {
   const number = plan.objects.filter(o => o.kind === kind).length + 1;
   const object: FloorObject = { id: uid(kind), kind, name: `${kindLabels[kind]} ${number}`, layerId, notes: '', rotation: 0, ...point };
+  if (isSymbol(object)) object.symbolWidth = toolSymbolWidth(plan, kind);
   if (kind === 'location') Object.assign(object, { width: 160, height: 100, locationType: 'office' });
-  if (kind === 'outlet' || kind === 'plate') {
+  if (kind === 'outlet') {
+    object.name = nextSmbName(plan);
+    object.ports = resizeSmbPorts(plan, object, count);
+  }
+  if (kind === 'plate') {
     const labels = new Set(plan.objects.flatMap(o => o.ports?.map(p => p.label) ?? []));
     let n = 1;
-    object.ports = Array.from({ length: kind === 'outlet' ? 1 : count }, () => {
+    object.ports = Array.from({ length: count }, () => {
       while (labels.has(`PORT-${String(n).padStart(3, '0')}`)) n++;
       const label = `PORT-${String(n++).padStart(3, '0')}`;
       labels.add(label);
@@ -136,18 +226,28 @@ export function createObject(plan: FloorPlan, kind: ObjectKind, point: Point, la
     });
     object.name = object.ports[0].label;
   }
-  if (isRoute(object)) Object.assign(object, { points: [point], status: 'planned' });
+  if (isRoute(object)) Object.assign(object, { points: [point], status: 'planned', lineWeight: toolLineWeight(plan, kind) });
   return object;
 }
 export function duplicateObjects(plan: FloorPlan, ids: string[]) {
   const originals = plan.objects.filter(o => ids.includes(o.id) && !plan.layers.find(l => l.id === o.layerId)?.locked);
   const idMap = new Map(originals.map(o => [o.id, uid(o.kind)]));
   const labels = new Set(plan.objects.flatMap(o => o.ports?.map(p => p.label) ?? []));
+  const allocated: FloorObject[] = [];
   const copies: FloorObject[] = originals.map(o => {
     const bounds = objectBounds(o);
     const next = translateObject(o, Math.min(20, plan.background.width - bounds.x - bounds.width), Math.min(20, plan.background.height - bounds.y - bounds.height));
+    if (o.kind === 'outlet') {
+      const used = { ...plan, objects: [...plan.objects, ...allocated] };
+      const copy = { ...next, id: idMap.get(o.id)!, name: nextSmbName(used), locationId: idMap.get(o.locationId ?? '') ?? o.locationId, sourceId: undefined, destinationId: undefined, sourceSide: undefined, destinationSide: undefined, ports: undefined };
+      const ports = resizeSmbPorts(used, copy, o.ports!.length).map((p, i) => ({ ...p, medium: o.ports![i].medium }));
+      const result = { ...copy, ports };
+      allocated.push(result);
+      ports.forEach(p => labels.add(p.label));
+      return result;
+    }
     return { ...next, id: idMap.get(o.id)!, name: `${o.name} copy`, locationId: idMap.get(o.locationId ?? '') ?? o.locationId,
-      sourceId: undefined, destinationId: undefined, ...(isRoute(o) && { status: 'planned' as const }),
+      sourceId: undefined, destinationId: undefined, sourceSide: undefined, destinationSide: undefined, ...(isRoute(o) && { status: 'planned' as const }),
       ...(o.ports && { ports: o.ports.map(p => {
         let n = 1; while (labels.has(`${p.label}-copy-${n}`)) n++;
         const label = `${p.label}-copy-${n}`; labels.add(label);
@@ -161,8 +261,11 @@ export function removeObjects(plan: FloorPlan, ids: string[]) {
   const removed = new Set(plan.objects.filter(o => ids.includes(o.id) && !plan.layers.find(l => l.id === o.layerId)?.locked).map(o => o.id));
   return { ...plan, objects: plan.objects.filter(o => !removed.has(o.id)).map(o => ({ ...o,
     locationId: removed.has(o.locationId ?? '') ? undefined : o.locationId,
+    ...(removed.has(o.locationId ?? '') && !o.locationMode && { locationMode: 'manual' as const }),
     sourceId: removed.has(o.sourceId ?? '') ? undefined : o.sourceId,
     destinationId: removed.has(o.destinationId ?? '') ? undefined : o.destinationId,
+    ...(removed.has(o.sourceId ?? '') && {sourceSide: undefined}),
+    ...(removed.has(o.destinationId ?? '') && {destinationSide: undefined}),
   })) };
 }
 export function samplePlan(): FloorPlan {
@@ -219,6 +322,16 @@ export function parseFloorPlan(value: unknown): FloorPlan {
   const p = value as unknown as FloorPlan;
   if (p.symbolSize !== undefined && !['small', 'medium', 'large'].includes(p.symbolSize)) fail('invalid symbol size.');
   if (p.symbolWidth !== undefined && (!finite(p.symbolWidth) || p.symbolWidth <= 0 || p.symbolWidth > 20000)) fail('symbol width must be greater than zero and at most 20,000 plan units.');
+  const validWeight = (v: unknown) => finite(v) && (v as number) > 0 && (v as number) <= 200;
+  if (p.toolDefaults !== undefined) {
+    if (!record(p.toolDefaults)) fail('invalid drawing tool defaults.');
+    for (const [key, settings] of Object.entries(p.toolDefaults)) {
+      const kind = key as ObjectKind;
+      if (!objectKinds.includes(kind) || !record(settings) || Object.keys(settings).some(k => !['symbolWidth','lineWeight'].includes(k))) fail('invalid drawing tool defaults.');
+      if (settings.symbolWidth !== undefined && (!isSymbol({kind}) || !finite(settings.symbolWidth) || settings.symbolWidth <= 0 || settings.symbolWidth > 20000)) fail('invalid tool symbol width.');
+      if (settings.lineWeight !== undefined && (!isRoute({kind}) || !validWeight(settings.lineWeight))) fail('invalid tool line weight.');
+    }
+  }
   if (p.grid !== undefined && (!record(p.grid) || !finite(p.grid.spacing) || p.grid.spacing < .001 || p.grid.spacing > 1000000 || !['plan', 'ft', 'm'].includes(p.grid.unit))) fail('grid spacing must be between 0.001 and 1,000,000 with valid units.');
   if (!text(p.id) || !text(p.building) || !text(p.floor)) fail('building, floor and ID are required.');
   const bg = p.background;
@@ -234,6 +347,8 @@ export function parseFloorPlan(value: unknown): FloorPlan {
   for (const o of p.objects) {
     if (!record(o) || !objectKinds.includes(o.kind) || !text(o.name) || !point(o) || !finite(o.rotation) || typeof o.notes !== 'string' || o.notes.length > 10000 || !layerIds.has(o.layerId) || (o.color !== undefined && !color(o.color))) fail('invalid object.');
     if (o.symbolWidth !== undefined && (!isSymbol(o) || !finite(o.symbolWidth) || o.symbolWidth <= 0 || o.symbolWidth > 20000)) fail('invalid item symbol width.');
+    if (o.lineWeight !== undefined && (!isRoute(o) || !validWeight(o.lineWeight))) fail('invalid item line weight.');
+    if (o.locationMode !== undefined && (!['auto','manual'].includes(o.locationMode) || (o.kind === 'location' && o.locationMode === 'auto'))) fail('invalid location mode.');
     if (o.labelStyle !== undefined) {
       const s=o.labelStyle;
       if (!record(s) || isRoute(o) || (s.fontSize!==undefined&&(!finite(s.fontSize)||s.fontSize<4||s.fontSize>96)) || (s.position!==undefined&&!labelPositions(o).includes(s.position)) || [s.offsetX,s.offsetY].some(n=>n!==undefined&&(!finite(n)||Math.abs(n)>20000))) fail('invalid item label style.');
@@ -242,10 +357,9 @@ export function parseFloorPlan(value: unknown): FloorPlan {
     if (o.kind === 'location' && (!finite(o.width) || !finite(o.height) || o.width! < 5 || o.height! < 5 || o.x + o.width! > bg.width || o.y + o.height! > bg.height)) fail('location box is outside the drawing.');
     if (isRoute(o)) {
       if (!Array.isArray(o.points) || o.points.length < 2 || o.points.length > 2000 || !o.points.every(point) || !['planned','verified'].includes(o.status!)) fail('invalid route.');
-      if (o.points!.slice(1).some((pt,i) => pt.x !== o.points![i].x && pt.y !== o.points![i].y)) fail('routes must use orthogonal segments.');
     }
     if (['outlet','plate'].includes(o.kind)) {
-      if (!Array.isArray(o.ports) || ![1,2,4,6].includes(o.ports.length) || (o.kind === 'outlet' && o.ports.length !== 1)) fail('invalid wall plate ports.');
+      if (!Array.isArray(o.ports) || !(o.kind === 'outlet' ? o.ports.length >= 1 && o.ports.length <= 8 : [1,2,4,6].includes(o.ports.length))) fail('invalid SMB or wall plate ports.');
       for (const port of o.ports!) {
         if (!record(port) || !text(port.label) || portLabels.has(port.label) || !['copper','fiber'].includes(port.medium) || !statuses.includes(port.mappingStatus) || typeof port.notes !== 'string' || port.notes.length > 10000) fail('invalid port or duplicate port label.');
         unique(port.id); portLabels.add(port.label);
@@ -257,9 +371,13 @@ export function parseFloorPlan(value: unknown): FloorPlan {
   for (const o of p.objects) {
     if (o.locationId && !p.objects.some(r => r.id === o.locationId && r.kind === 'location')) fail('unknown location.');
     for (const id of [o.sourceId, o.destinationId]) if (id && !p.objects.some(r => r.id === id)) fail('unknown route endpoint.');
+    for (const end of ['source','destination'] as const) {
+      const side = o[end === 'source' ? 'sourceSide' : 'destinationSide'];
+      if (side !== undefined && (!isRoute(o) || !connectorSides.includes(side) || !p.objects.some(target => target.id === o[end === 'source' ? 'sourceId' : 'destinationId'] && isSymbol(target)))) fail('invalid route connector.');
+    }
     const visited = new Set([o.id]); let parent = o.locationId;
     while (parent) { if (visited.has(parent)) fail('location associations contain a cycle.'); visited.add(parent); parent = p.objects.find(r => r.id === parent)?.locationId; }
   }
   if (p.calibration !== null && (!record(p.calibration) || !point(p.calibration.a) || !point(p.calibration.b) || distance(p.calibration.a,p.calibration.b) < .001 || !finite(p.calibration.distance) || p.calibration.distance <= 0 || !['ft','m'].includes(p.calibration.unit))) fail('invalid calibration.');
-  return p;
+  return migrateSmbNames(p);
 }

@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { stackProject } from './stack-fixture';
+import { templatePortLabel } from '../src/equipmentTemplates';
+import { validCustomTemplates } from '../src/templateImport';
+import { parseProject, projectLayout, saveEquipmentTemplate } from '../src/project';
+import { rackPortLabel } from '../src/rackSearch';
+import { connectionPortMatches } from '../src/connectionDraft';
+import { interfaceName } from '../src/model';
+
+test('named port labels do not consume physical numbers or change saved endpoint identities',()=>{
+  const project=stackProject(),original=project.templates![0];
+  const template={...original,ports:original.ports.map((p,i)=>({...p,name:i===0?'mgmt':`port${i}`}))};
+  project.templates![0]=template;
+  project.locations[0].layout={racks:[{id:'R1',label:'Rack',heightU:12,positionM:0,equipment:[{id:'SW1',label:'Switch',kind:'switch',bottomU:5,heightU:1,portCount:48,portStart:0,templateId:template.id}]}],cables:[{id:'CBL-0001',from:{rackId:'R1',equipmentId:'SW1',port:0},to:{rackId:'R1',equipmentId:'SW1',port:1},vlan:null,jacket:'#147de3'}],portVlans:{'R1/SW1/0':10},portDetails:{'R1/SW1/0':{facilityLocation:'',notes:'Management connection'}}};
+  let layout=projectLayout(project,project.locations[0].id);
+  const endpoint={rackId:'R1',equipmentId:'SW1',port:0};
+  assert.equal(rackPortLabel(layout,endpoint),'MGMT');
+  assert.equal(rackPortLabel(layout,{...endpoint,port:1}),'1');
+  assert.equal(templatePortLabel({name:'console'},'switch',99),'Console');
+  assert.equal(templatePortLabel({name:'ge-0/0/0'},'switch',99),'ge-0/0/0');
+  assert.equal(templatePortLabel({name:'Port 1'},'patch-panel',225),'225');
+  const updated={...template,ports:template.ports.map((p,i)=>i===0?{...p,label:'OOB management'}:p)};
+  const saved=saveEquipmentTemplate(project,updated),restored=parseProject(JSON.parse(JSON.stringify(saved)))!;
+  assert.ok(restored);assert.deepEqual(restored.locations,project.locations);
+  layout=projectLayout(restored,restored.locations[0].id);
+  assert.equal(rackPortLabel(layout,endpoint),'OOB management');
+  assert.equal(interfaceName(layout,layout.racks[0].equipment[0],0),'mgmt');
+  assert.deepEqual(connectionPortMatches(layout,'OOB management').exact[0].endpoint,endpoint);
+  assert.deepEqual(connectionPortMatches(layout,'mgmt').exact[0].endpoint,endpoint);
+  for(const label of ['', '  MGMT ', 'x'.repeat(81), 8, '1']) assert.equal(validCustomTemplates([{...template,ports:template.ports.map((p,i)=>i===0?{...p,label}:p)}]),false);
+});

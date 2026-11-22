@@ -1,0 +1,33 @@
+import { test, expect } from '@playwright/test';
+
+for (const mobile of [false, true]) test(`${mobile ? 'mobile' : 'desktop'} notes are edited only in the port card and persist independently`, async ({ page }) => {
+  if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  const panel = page.locator('[data-port="CAB-A01/PP-A04/18"]');
+  const switchPort = page.locator('[data-port="CAB-A02/SW-B01/18"]');
+  const card = page.getByRole('region', { name: 'Selected port details', exact: true });
+  const notes = card.getByRole('textbox', { name: 'Port notes', exact: true });
+  await panel.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'Port notes', exact: true })).toHaveCount(1);
+  await expect(page.locator('.selected-port-controls textarea')).toHaveCount(0);
+  await expect(notes).toHaveAttribute('maxlength', '2000');
+  await notes.fill('Panel note\nSecond line');
+  await switchPort.press('Enter');await expect(notes).toHaveValue('');
+  await notes.fill('Switch note');
+  await panel.press('Enter');await expect(notes).toHaveValue('Panel note\nSecond line');
+  await switchPort.press('Control+Enter');
+  await expect(page.getByRole('table', { name: 'Selected ports', exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Port notes', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: 'Port notes action', exact: true })).toHaveCount(0);
+  await page.reload();await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await switchPort.press('Enter');await expect(notes).toHaveValue('Switch note');
+  await notes.fill('');
+  await panel.press('Enter');await expect(notes).toHaveValue('Panel note\nSecond line');
+  await switchPort.press('Control+Enter');
+  await page.getByRole('button', { name: 'Deselect port 18 on SW-B01 in Rack B', exact: true }).click();
+  await expect(notes).toHaveValue('Panel note\nSecond line');
+  await notes.fill('Updated panel note');
+  const project = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
+  expect(project.locations[0].layout.portDetails['CAB-A01/PP-A04/18'].notes).toBe('Updated panel note');
+  expect(project.locations[0].layout.portDetails['CAB-A02/SW-B01/18']?.notes ?? '').toBe('');
+});

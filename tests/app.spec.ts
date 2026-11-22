@@ -69,7 +69,7 @@ test('connection lifecycle enforces free ports, edits jacket and VLAN independen
   await expect(page.getByRole('alert')).toContainText('already connected');
   await page.getByRole('combobox', { name: 'From port' }).selectOption('24');
   await page.getByRole('button', { name: 'Create connection', exact: true }).click();
-  await expect(page.locator('.connection-id')).toContainText('NEW-0001');
+  await expect(page.locator('.connection-id')).toContainText('CBL-0001');
   await expect(page.locator('.cable-group')).toHaveCount(33);
   await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
   await page.getByRole('combobox', { name: 'Logical VLAN' }).selectOption('60');

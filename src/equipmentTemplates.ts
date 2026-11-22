@@ -1,12 +1,18 @@
 import type { PortMedia } from './media';
 import type { Equipment, EquipmentKind } from './model';
 
-export interface TemplatePort { x: number; y: number; width: number; height: number; name?: string; interfaceType?: string; media?: PortMedia }
+export type EquipmentSide = 'front' | 'rear';
+export const CONSOLE_CONNECTORS = ['RJ45', 'USB-A', 'USB-B', 'USB-C', 'Mini USB', 'Micro USB', 'DB9', 'DB25', 'RJ11', 'RJ12', 'Mini DIN 8', 'Other'] as const;
+export type ConsoleConnector = typeof CONSOLE_CONNECTORS[number];
+export type PortFunction = 'ethernet' | 'console';
+export interface TemplatePort { sourceSection?: 'interfaces' | 'front-ports' | 'console-ports'; manual?: boolean; function?: PortFunction; consoleConnector?: ConsoleConnector; label?: string; face?: EquipmentSide; x: number; y: number; width: number; height: number; name?: string; interfaceType?: string; media?: PortMedia }
+export interface EquipmentImage { imageSrc:string; imageWidth:number; imageHeight:number }
 export interface EquipmentTemplate {
   id: string; name: string; kind: EquipmentKind; portCount: number; heightU: number; portStart?: number;
   imageSrc: string; imageWidth: number; imageHeight: number; description: string;
+  rearImage?: EquipmentImage;
   ports: readonly TemplatePort[];
-  source?: { manufacturer: string; model: string; filename: string };
+  source?: { manufacturer: string; model: string; filename: string; yaml?: string };
 }
 const patchCenters = [81, 135, 189, 242, 296, 350, 425, 479, 533, 587, 640, 694, 769, 823, 877, 930, 984, 1038, 1113, 1167, 1220, 1274, 1328, 1382];
 const switchCenters = [120, 144, 167, 191, 215, 239, 268, 292, 315, 339, 363, 387, 416, 440, 463, 487, 511, 535, 564, 588, 611, 635, 659, 683];
@@ -35,3 +41,15 @@ export function equipmentTemplate(equipment: Equipment, custom: readonly Equipme
   return template && compatibleTemplate(equipment, template) ? template : undefined;
 }
 export function templatePort(equipment: Equipment, port: number, custom: readonly EquipmentTemplate[] = []) { return equipmentTemplate(equipment, custom)?.ports[port - (equipment.portStart ?? 1)]; }
+
+export function portFace(equipment: Equipment, port: number, custom: readonly EquipmentTemplate[] = []): EquipmentSide { return templatePort(equipment, port, custom)?.face ?? 'front'; }
+
+// Display labels are independent of the numeric keys used by saved connections.
+export function interfacePortLabel(name: string): string {
+  if (/^mgmt$/i.test(name)) return 'MGMT';
+  if (/^console$/i.test(name)) return 'Console';
+  return name.replace(/^port\s*(\d+)$/i, '$1');
+}
+export function templatePortLabel(port: Pick<TemplatePort, 'name' | 'label'>, kind: EquipmentKind, number: number): string {
+  return kind === 'switch' ? port.label?.trim() || interfacePortLabel(port.name ?? '') || String(number) : String(number);
+}

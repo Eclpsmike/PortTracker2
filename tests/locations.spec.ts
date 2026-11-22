@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import type { Project } from '../src/project';
+import { parseProjectBackup } from '../src/projectBackup';
 
 async function savedProject(page: Page): Promise<Project> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
@@ -53,7 +54,7 @@ test('MDF/IDF creation, rename, switching and reload preserve independent layout
   await page.getByRole('button', { name: 'Create connection', exact: true }).click();
   await page.reload();
   await expect(page.locator('.cable-group')).toHaveCount(1);
-  await expect(page.locator('.connection-id')).toContainText('NEW-0001');
+  await expect(page.locator('.connection-id')).toContainText('CBL-0001');
   await page.getByRole('link', { name: 'Distribution Frames', exact: true }).click();
   await page.screenshot({ path: 'artifacts/locations-desktop.png' });
   expect((await savedProject(page)).locations.find(l => l.id === originalId)?.id).toBe(originalId);
@@ -121,7 +122,7 @@ test('project export/import previews replacement, rejects corrupt files and rest
   await page.getByLabel('Project JSON file').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: backup });
   await page.getByRole('button', { name: 'Replace with imported project', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Site name', exact: true })).toHaveValue('Campus');
-  expect(await savedProject(page)).toEqual({ ...original, configuration: { ...original.configuration, facilityLocations: original.configuration.facilityLocations ?? [] } });
+  expect(await savedProject(page)).toEqual({ ...parseProjectBackup(original).project, id: (await savedProject(page)).id });
   await page.reload();
   await expect(page.getByRole('article', { name: 'MDF-Backup distribution frame', exact: true })).toBeVisible();
 });

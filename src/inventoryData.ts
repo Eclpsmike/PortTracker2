@@ -1,6 +1,5 @@
-import { endpointKey, equipmentStack, equipmentUnits, firstPortNumber, getPortMedia, interfaceName, patchPortDetails, portNumbers, portVlan, resolveEndpoint, type Endpoint } from './model';
+import { endpointKey, equipmentStack, equipmentUnits, firstPortNumber, portPhysicalLabel, isNetworkPort, interfaceName, patchPortDetails, portNumbers, portVlan, resolveEndpoint, type Endpoint } from './model';
 import { equipmentTemplate, templatePort } from './equipmentTemplates';
-import { mediaLabel } from './media';
 import { projectLayout, type Project } from './project';
 
 export type InventoryKind = 'racks' | 'ports';
@@ -50,9 +49,9 @@ export function inventoryRows(project: Project, kind: InventoryKind): InventoryR
           return { ...row, key: `${row.key}/${port}`, port,
             sourceInterface: templatePort(equipment, port, project.templates)?.name ?? '',
             interfaceName: interfaceName(layout, equipment, port),
-            media: mediaLabel(getPortMedia(layout, ep)), status: peer ? 'Connected' : 'Available',
+            media: portPhysicalLabel(layout, ep), status: !isNetworkPort(layout,ep) ? 'Serial console' : peer ? 'Connected' : 'Available',
             peer: target && peer ? `${target.rack.label} / ${target.equipment.label} / Port ${peer.port}` : '',
-            vlanId, vlan: vlanId === null ? 'Unassigned' : `${vlanId} — ${project.configuration.vlans.find(v => v.id === vlanId)?.name ?? 'Unknown VLAN'}`,
+            vlanId, vlan: !isNetworkPort(layout,ep) ? 'Not applicable' : vlanId === null ? 'Unassigned' : `${vlanId} — ${project.configuration.vlans.find(v => v.id === vlanId)?.name ?? 'Unknown VLAN'}`,
             ...patchPortDetails(layout, ep),
           };
         });

@@ -10,6 +10,7 @@ export function assignPortLocations(layout: Layout, endpoints: readonly Endpoint
   if (name && !catalog.some(l => l.name === name)) throw new Error('Choose a configured facility location.');
   const portDetails = { ...layout.portDetails };
   for (const ep of endpoints) {
+    if (resolveEndpoint(layout, ep).equipment.kind !== 'patch-panel') continue;
     const value = { ...patchPortDetails(layout, ep), facilityLocation: name };
     if (!value.facilityLocation && !value.notes) delete portDetails[endpointKey(ep)];
     else portDetails[endpointKey(ep)] = value;

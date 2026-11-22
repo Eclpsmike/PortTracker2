@@ -11,14 +11,15 @@ import { type LengthUnit, readLengthUnit } from './units';
 export const PROJECT_STORAGE_KEY = 'porttracker.project';
 export interface Building { id: string; name: string }
 export interface Closet {
-  id: string; name: string; type: 'MDF' | 'IDF'; buildingId: string; floor: string; room: string; notes: string; archived: boolean;
+  id: string; name: string; type: 'MDF' | 'IDF'; buildingId: string; floor: string; room: string; notes: string; archived: boolean; portPrefix?: string;
   layout: Layout; calibration: Calibration; rackGap: number;
 }
 export interface Project {
   templates?: EquipmentTemplate[];
   schemaVersion: 2; id: string; siteName: string; buildings: Building[]; locations: Closet[];
-  activeLocationId: string; configuration: Configuration; preferences: { lengthUnit: LengthUnit; rackZoom?: number; singleRackZoom?: number };
+  activeLocationId: string; configuration: Configuration; preferences: { lengthUnit: LengthUnit; rackZoom?: number; singleRackZoom?: number; rackFace?: 'front'|'rear' };
 }
+export const validPortPrefix = (value: unknown): value is string => typeof value === 'string' && value.length <= 20 && /^[A-Za-z0-9_-]*$/.test(value);
 export const newId = () => crypto.randomUUID();
 export function defaultProject(configuration: Configuration, lengthUnit: LengthUnit): Project {
   return { schemaVersion: 2, id: newId(), siteName: 'Main site', buildings: [{ id: 'building-a', name: 'Building A' }],
@@ -42,7 +43,7 @@ function validCalibration(v: unknown): v is Calibration {
 function validLayout(value: unknown, config: Configuration, templates: EquipmentTemplate[] = []): value is Layout {
   if (!record(value) || value.templates !== undefined || !Array.isArray(value.racks) || value.racks.length > 100 || !Array.isArray(value.cables)) return false;
   const rackIds = new Set<string>();
-  const portKeys = new Set<string>(), patchPortKeys = new Set<string>();
+  const portKeys = new Set<string>();
   for (const r of value.racks) {
     if (!record(r) || !id(r.id) || rackIds.has(r.id) || !text(r.label) || !Number.isInteger(r.heightU) || Number(r.heightU) < 1 || Number(r.heightU) > MAX_RACK_UNITS || !finite(r.positionM) || !Array.isArray(r.equipment) || r.equipment.length > Number(r.heightU)) return false;
     if (r.verticalManagement !== undefined && typeof r.verticalManagement !== 'boolean') return false;
@@ -63,8 +64,7 @@ function validLayout(value: unknown, config: Configuration, templates: Equipment
       for (let port = Number(e.portStart ?? 1); port < Number(e.portStart ?? 1) + Number(e.portCount); port++) {
         const key = `${r.id}/${e.id}/${port}`;
         portKeys.add(key);
-        if (e.kind === 'patch-panel') patchPortKeys.add(key);
-      }
+        }
     }
   }
   if (value.portMedia !== undefined) {
@@ -89,7 +89,7 @@ function validLayout(value: unknown, config: Configuration, templates: Equipment
   }
   if (value.portDetails !== undefined) {
     if (!record(value.portDetails)) return false;
-    for (const [key, details] of Object.entries(value.portDetails)) if (!portKeys.has(key) || !validPortDetails(details) || (!patchPortKeys.has(key) && details.notes !== '')) return false;
+    for (const [key, details] of Object.entries(value.portDetails)) if (!portKeys.has(key) || !validPortDetails(details)) return false;
   }
   return true;
 }
@@ -98,6 +98,7 @@ export function parseProject(value: unknown): Project | null {
   if (value.templates !== undefined && !validCustomTemplates(value.templates)) return null;
   const config = parseConfiguration(value.configuration);
   if (!config || !record(value.preferences) || !['metric', 'imperial'].includes(String(value.preferences.lengthUnit))) return null;
+  if (value.preferences.rackFace!==undefined&&value.preferences.rackFace!=='front'&&value.preferences.rackFace!=='rear') return null;
   if (value.preferences.rackZoom !== undefined && (!finite(value.preferences.rackZoom) || value.preferences.rackZoom < .12 || value.preferences.rackZoom > 2)) return null;
   if (value.preferences.singleRackZoom !== undefined && (!finite(value.preferences.singleRackZoom) || value.preferences.singleRackZoom < .12 || value.preferences.singleRackZoom > 8)) return null;
   const buildingIds = new Set<string>(), buildingNames = new Set<string>(), locationIds = new Set<string>(), locationNames = new Set<string>();
@@ -107,6 +108,7 @@ export function parseProject(value: unknown): Project | null {
   }
   for (const l of value.locations) {
     if (!record(l) || !id(l.id) || locationIds.has(l.id) || !text(l.name) || !['MDF', 'IDF'].includes(String(l.type)) || typeof l.buildingId !== 'string' || !buildingIds.has(l.buildingId) || !optionalText(l.floor, 100) || !optionalText(l.room, 100) || !optionalText(l.notes, 2000) || typeof l.archived !== 'boolean' || !finite(l.rackGap) || !validCalibration(l.calibration) || !validLayout(l.layout, config, (value.templates ?? []) as EquipmentTemplate[])) return null;
+    if (l.portPrefix !== undefined && !validPortPrefix(l.portPrefix)) return null;
     const nameKey = `${l.buildingId}/${l.name.trim().toLowerCase()}`;
     if (locationNames.has(nameKey)) return null;
     locationIds.add(l.id); locationNames.add(nameKey);
@@ -141,7 +143,7 @@ export function readProject(): { project: Project; notice: string; blocked: bool
 export function saveProject(project: Project): boolean {
   try { localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(project)); return true; } catch { return false; }
 }
-export interface LocationDraft { name: string; type: 'MDF' | 'IDF'; building: string; floor: string; room: string; notes: string }
+export interface LocationDraft { name: string; type: 'MDF' | 'IDF'; building: string; floor: string; room: string; notes: string; portPrefix?: string }
 export function upsertLocation(project: Project, draft: LocationDraft, editingId?: string, copyFromId?: string): Project {
   if (!editingId && project.locations.length >= 100) throw new Error('This project already has 100 distribution frames.');
   if (!['MDF', 'IDF'].includes(draft.type)) throw new Error('Choose MDF or IDF.');
@@ -149,8 +151,10 @@ export function upsertLocation(project: Project, draft: LocationDraft, editingId
   const building = project.buildings.find(b => b.name.trim().toLowerCase() === draft.building.trim().toLowerCase()) ?? { id: newId(), name: draft.building.trim() };
   if (project.locations.some(l => l.id !== editingId && l.buildingId === building.id && l.name.trim().toLowerCase() === draft.name.trim().toLowerCase())) throw new Error('That distribution frame name already exists in this building.');
   const existing = project.locations.find(l => l.id === editingId);
+  const portPrefix = (draft.portPrefix ?? existing?.portPrefix ?? '').trim();
+  if (!validPortPrefix(portPrefix)) throw new Error('Port prefix may contain up to 20 letters, numbers, hyphens or underscores.');
   const source = project.locations.find(l => l.id === copyFromId);
-  const location: Closet = { id: existing?.id ?? newId(), type: draft.type, floor: draft.floor.trim(), room: draft.room.trim(), notes: draft.notes.trim(), name: draft.name.trim(), buildingId: building.id, archived: existing?.archived ?? false,
+  const location: Closet = { ...(portPrefix && { portPrefix }), id: existing?.id ?? newId(), type: draft.type, floor: draft.floor.trim(), room: draft.room.trim(), notes: draft.notes.trim(), name: draft.name.trim(), buildingId: building.id, archived: existing?.archived ?? false,
     layout: existing?.layout ?? { racks: source ? structuredClone(source.layout.racks) : [], cables: [], portVlans: {}, ...(source?.layout.stacks && { stacks: structuredClone(source.layout.stacks) }), ...(source?.layout.portMedia && { portMedia: structuredClone(source.layout.portMedia) }) },
     calibration: existing?.calibration ?? structuredClone(source?.calibration ?? defaultCalibration), rackGap: existing?.rackGap ?? source?.rackGap ?? .25 };
   return { ...project, buildings: project.buildings.some(b => b.id === building.id) ? project.buildings : [...project.buildings, building], locations: existing ? project.locations.map(l => l.id === existing.id ? location : l) : [...project.locations, location] };
@@ -173,10 +177,16 @@ export function templateUsage(project: Project, templateId: string): number {
 export function saveEquipmentTemplate(project: Project, template: EquipmentTemplate): Project {
   const existing = project.templates?.find(t => t.id === template.id);
   if (project.templates?.some(t => t.id !== template.id && t.name.trim().toLowerCase() === template.name.trim().toLowerCase())) throw new Error('A template with that name already exists.');
-  if (existing && templateUsage(project, template.id) && (existing.kind !== template.kind || existing.heightU !== template.heightU || existing.portCount !== template.portCount || existing.ports.some((p, i) => p.name !== template.ports[i]?.name))) throw new Error('Used templates must retain their type, rack height, and numbered port identities.');
+  if (existing && templateUsage(project, template.id) && (existing.kind !== template.kind || existing.heightU !== template.heightU || existing.portCount > template.portCount || existing.ports.some((p, i) => p.name !== template.ports[i]?.name))) throw new Error('Used templates must retain their type, rack height, and existing port identities. New ports can be appended.');
   const templates = existing ? project.templates!.map(t => t.id === template.id ? template : t) : [...(project.templates ?? []), template];
-  if (!validCustomTemplates(templates)) throw new Error('Check every socket is mapped, inside the image, and does not overlap another socket. The library supports 30 templates and 4 MB of embedded image data.');
-  const locations = existing && firstPortNumber(existing) !== firstPortNumber(template) ? project.locations.map(location => {
+  if (!validCustomTemplates(templates)) throw new Error('Check every socket is mapped, inside the image, and does not overlap another socket. The library supports 30 templates and 4 MB of embedded image and source YAML data.');
+  const expandedLocations = existing && existing.portCount !== template.portCount ? project.locations.map(location => ({ ...location, layout: { ...location.layout, racks: location.layout.racks.map(rack => ({ ...rack, equipment: rack.equipment.map(equipment => {
+    if (equipment.templateId !== template.id) return equipment;
+    if (!compatibleTemplate(equipment, existing)) throw new Error('An existing device does not match the original template.');
+    if (!validPortRange(firstPortNumber(equipment), template.portCount)) throw new Error(`${equipment.label}: the added ports exceed the supported port range.`);
+    return { ...equipment, portCount: template.portCount };
+  }) })) } })) : project.locations;
+  const locations = existing && firstPortNumber(existing) !== firstPortNumber(template) ? expandedLocations.map(location => {
     const keys = new Map<string, Endpoint>();
     const racks = location.layout.racks.map(rack => ({ ...rack, equipment: rack.equipment.map(equipment => {
       if (equipment.templateId !== template.id || equipment.portStartOverride) return equipment;
@@ -195,7 +205,7 @@ export function saveEquipmentTemplate(project: Project, template: EquipmentTempl
       ...(location.layout.portMedia && { portMedia: remapRecords(location.layout.portMedia) }),
       ...(location.layout.portDetails && { portDetails: remapRecords(location.layout.portDetails) }),
     } };
-  }) : project.locations;
+  }) : expandedLocations;
   for (const location of locations) for (const cable of location.layout.cables) {
     const problem = cableMediaError({ ...location.layout, templates }, cable);
     if (problem) throw new Error(`${location.name} / ${cable.id}: ${problem}`);

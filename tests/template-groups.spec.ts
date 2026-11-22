@@ -8,15 +8,14 @@ for (const mobile of [false, true]) test(`${mobile ? 'mobile' : 'desktop'} maps 
   // Optical interfaces deliberately precede copper in the source definition.
   const interfaces = [...Array.from({ length: 4 }, (_, i) => i + 12), ...Array.from({ length: 12 }, (_, i) => i)].map(i => `  - name: ${i < 12 ? `ge-0/0/${i}` : `xe-0/1/${i - 12}`}\n    type: ${i < 12 ? '1000base-t' : '10gbase-x-sfpp'}`).join('\n');
   await page.getByLabel('Device definition YAML').setInputFiles({ name: 'groups.yaml', mimeType: 'text/yaml', buffer: Buffer.from(`manufacturer: Test\nmodel: Grouped switch\nu_height: 1\ninterfaces:\n${interfaces}\n`) });
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles('public/equipment/netbox/generic-24-port-copper-patch-panel.front.png');
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles('public/equipment/netbox/generic-24-port-copper-patch-panel.front.png');
   await page.getByRole('button', { name: 'Continue to port mapping' }).click();
-  await page.getByLabel('Starting port number', { exact: true }).fill('0');
   await page.getByText('Start with a regular grid', { exact: true }).click();
   await page.getByRole('button', { name: 'Clear grid selection', exact: true }).click();
   const generate = page.getByRole('button', { name: 'Generate port grid', exact: true });
   await expect(generate).toBeDisabled();
-  await page.getByLabel('First port in range', { exact: true }).fill('0');
-  await page.getByLabel('Last port in range', { exact: true }).fill('11');
+  await page.getByLabel('First port in range', { exact: true }).selectOption({label:'ge-0/0/0'});
+  await page.getByLabel('Last port in range', { exact: true }).selectOption({label:'ge-0/0/11'});
   await page.getByRole('button', { name: 'Select port range', exact: true }).click();
   await page.getByLabel('Grid columns', { exact: true }).fill('6');
   await page.getByLabel('Grid numbering', { exact: true }).selectOption('columns');
@@ -47,8 +46,8 @@ for (const mobile of [false, true]) test(`${mobile ? 'mobile' : 'desktop'} maps 
   expect(await positions()).toEqual(copper);
   await page.getByText('Start with a regular grid', { exact: true }).click();
   await page.getByRole('button', { name: 'Select unmapped ports', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: 'Grid port 12 — xe-0/1/0', exact: true })).toBeChecked();
-  await expect(page.getByRole('checkbox', { name: 'Grid port 0 — ge-0/0/0', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Grid port xe-0/1/0 — xe-0/1/0', exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Grid port ge-0/0/0 — ge-0/0/0', exact: true })).not.toBeChecked();
   await page.getByLabel('Grid columns', { exact: true }).fill('2');
   await page.getByLabel('First column center (%)', { exact: true }).fill('75');
   await page.getByLabel('Last column center (%)', { exact: true }).fill('90');

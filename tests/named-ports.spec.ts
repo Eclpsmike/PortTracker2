@@ -1,0 +1,52 @@
+import { test, expect } from '@playwright/test';
+import { stackProject } from './stack-fixture';
+
+test('named mapping labels can be edited without changing connected ports',async({page})=>{
+  const project=stackProject(),template=project.templates![0];
+  template.ports=template.ports.map((p,i)=>({...p,name:i===0?'mgmt':`port${i}`}));
+  project.locations[0].layout={racks:[{id:'R1',label:'Rack',heightU:12,positionM:0,equipment:[{id:'SW1',label:'Switch',kind:'switch',bottomU:5,heightU:1,portCount:48,portStart:0,templateId:template.id}]}],cables:[{id:'CBL-0001',from:{rackId:'R1',equipmentId:'SW1',port:0},to:{rackId:'R1',equipmentId:'SW1',port:1},vlan:10,jacket:'#147de3'}],portVlans:{'R1/SW1/0':10}};
+  await page.addInitScript(project=>{if(!localStorage.getItem('porttracker.project'))localStorage.setItem('porttracker.project',JSON.stringify(project));},project);
+  await page.goto('/#/configuration/templates');await page.getByRole('button',{name:`Edit template ${template.name}`,exact:true}).click();
+  await expect(page.getByLabel('Starting port number',{exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('Mapped port',{exact:true}).locator('option:checked')).toHaveText('MGMT');
+  await expect(page.locator('[data-map-index="0"] text')).toHaveText('MGMT');
+  await expect(page.locator('[data-map-index="1"] text')).toHaveText('1');
+  await page.getByLabel('Port label',{exact:true}).fill('1');
+  await expect(page.getByRole('alert')).toContainText('unique label');
+  await page.getByLabel('Port label',{exact:true}).fill('OOB management');
+  await expect(page.locator('[data-map-index="0"] text')).toHaveText('OOB management');
+  await page.getByRole('checkbox',{name:'I checked every socket position and numbered interface against the image.',exact:true}).check();
+  await page.getByRole('button',{name:'Save template',exact:true}).click();
+  await expect(page.getByRole('region',{name:'Template editor',exact:true})).toHaveCount(0);
+  const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('porttracker.project')!));
+  expect(saved.locations[0].layout).toEqual(project.locations[0].layout);
+  await page.goto('/#/cabinets');await page.getByRole('tab',{name:'Ports',exact:true}).click();
+  await page.locator('[data-port="R1/SW1/0"]').click();
+  await expect(page.getByRole('region',{name:'Selected port details',exact:true})).toContainText('OOB management');
+  await page.getByText('Choose ports',{exact:true}).click();await expect(page.locator('[data-grid-port="R1/SW1/0"]')).toHaveText('OOB management');
+  await page.getByRole('button',{name:'Add connection',exact:true}).click();
+  await page.getByLabel('From port',{exact:true}).selectOption('0');
+  await expect(page.getByLabel('From port',{exact:true}).locator('option:checked')).toHaveText('OOB management');
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.goto('/#/configuration/templates');await page.getByRole('button',{name:`Edit template ${template.name}`,exact:true}).click();
+  await expect(page.getByLabel('Port label',{exact:true})).toHaveValue('OOB management');
+  await expect(page.getByLabel('Source interface',{exact:true})).toHaveValue('mgmt');
+});
+
+test('import maps MGMT followed by ports 1 and 2 using source names',async({page})=>{
+  await page.goto('/#/configuration/templates');await page.getByRole('button',{name:'Import template',exact:true}).click();
+  await page.getByLabel('Device definition YAML').setInputFiles({name:'named.yaml',mimeType:'text/yaml',buffer:Buffer.from('manufacturer: Test\nmodel: Named ports\nu_height: 1\ninterfaces:\n  - name: mgmt\n    type: 1000base-t\n  - name: port1\n    type: 1000base-t\n  - name: port2\n    type: 1000base-t\n')});
+  await page.getByLabel('Front equipment image',{exact:true}).setInputFiles('public/equipment/netbox/generic-24-port-copper-patch-panel.front.png');
+  await page.getByRole('button',{name:'Continue to port mapping',exact:true}).click();
+  await expect(page.getByLabel('Mapped port',{exact:true}).locator('option')).toHaveText(['MGMT (unmapped)','1 (unmapped)','2 (unmapped)']);
+  await page.getByText('Start with a regular grid',{exact:true}).click();
+  await page.getByLabel('First port in range',{exact:true}).selectOption({label:'1'});await page.getByLabel('Last port in range',{exact:true}).selectOption({label:'2'});
+  await page.getByRole('button',{name:'Select port range',exact:true}).click();await page.getByRole('button',{name:'Generate port grid',exact:true}).click();
+  await expect(page.locator('[data-map-index="0"]')).toHaveCount(0);await expect(page.locator('[data-map-index="1"] text')).toHaveText('1');await expect(page.locator('[data-map-index="2"] text')).toHaveText('2');
+  await page.getByRole('button',{name:'Select unmapped ports',exact:true}).click();
+  await page.getByLabel('First column center (%)',{exact:true}).fill('50');await page.getByLabel('Last column center (%)',{exact:true}).fill('50');
+  await page.getByRole('button',{name:'Generate port grid',exact:true}).click();
+  await expect(page.locator('[data-map-index="0"] text')).toHaveText('MGMT');
+  await page.getByRole('checkbox',{name:'I checked every socket position and numbered interface against the image.',exact:true}).check();await page.getByRole('button',{name:'Save template',exact:true}).click();
+  await expect(page.getByRole('region',{name:'Template editor',exact:true})).toHaveCount(0);
+});

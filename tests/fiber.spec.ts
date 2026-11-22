@@ -57,6 +57,7 @@ test('fiber connection checks, stock, port metadata, moves and backups work toge
   await page.getByRole('tab', { name: 'Equipment', exact: true }).click();
   await page.getByRole('button', { name: 'Move equipment', exact: true }).click();
   await page.getByLabel('Destination rack', { exact: true }).selectOption('CAB-A02');
+  page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button', { name: 'Save equipment position', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Equipment', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Manage ports', exact: true }).click();
@@ -81,7 +82,7 @@ test('mixed zero-based template imports optical slots and preserves physical set
   await page.getByRole('button', { name: 'Import template', exact: true }).click();
   await page.getByLabel('Device definition YAML').setInputFiles({ name: 'mixed.yaml', mimeType: 'text/yaml', buffer: Buffer.from('manufacturer: Test\nmodel: Mixed switch\nu_height: 1\ninterfaces:\n  - name: copper-0\n    type: 1000base-t\n  - name: optic-1\n    type: 10gbase-x-sfpp\n') });
   await page.getByRole('button', { name: 'Include all ports', exact: true }).click();
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles('public/equipment/netbox/ubiquiti-unifi-switch-48-gen1.front.png');
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles('public/equipment/netbox/ubiquiti-unifi-switch-48-gen1.front.png');
   await page.getByRole('button', { name: 'Continue to port mapping', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Starting port number', exact: true }).fill('0');
   await page.getByText('Start with a regular grid', { exact: true }).click();

@@ -14,8 +14,9 @@ function templates(): EquipmentTemplate[] {
     { ...EQUIPMENT_TEMPLATES[1], id: 'custom-small-switch', name: 'Fixture 24-port switch', portCount: 24, imageSrc: `data:image/png;base64,${readFileSync('public/equipment/netbox/ubiquiti-unifi-switch-48-gen1.front.png').toString('base64')}`, source: { filename: 'small.yaml', manufacturer: 'Test', model: '24-port' }, ports: EQUIPMENT_TEMPLATES[1].ports.slice(0, 24).map((p, i) => ({ ...p, name: `Ethernet ${i + 1}` })) },
   ];
 }
-async function setup(page: Page, empty = false) {
+async function setup(page: Page, empty = false, portPrefix?: string) {
   const project = defaultProject({ ...defaultConfiguration(), facilityLocations: [{ name: 'Warehouse', color: '#159de7' }] }, 'metric'); project.templates = templates();
+  if (portPrefix) project.locations[0].portPrefix=portPrefix;
   if (empty) project.locations[0].layout = { racks: [], cables: [], portVlans: {} };
   else project.locations[0].layout.portVlans!['CAB-A02/PP-B01/1'] = 99;
   await page.addInitScript(project => { if (!localStorage.getItem('porttracker.project')) localStorage.setItem('porttracker.project', JSON.stringify(project)); }, project);
@@ -54,17 +55,23 @@ test('rack position preview shows occupied units, multi-unit conflicts and movin
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect((await saved(page)).locations[0].layout.racks[0].equipment.find(e => e.id === 'PREVIEW')!.bottomU).toBe(16);
 });
-test('batch adds nine panels numbered 1–432 and keeps image overlays aligned in mixed-height views', async ({ page }) => {
-  await setup(page, true);
+test('batch adds nine panels numbered B001–B432 and keeps image overlays aligned in mixed-height views', async ({ page }) => {
+  await setup(page, true, 'B');
   await page.getByRole('button', { name: 'Add empty rack', exact: true }).click();
   await page.getByRole('button', { name: 'Add rack', exact: true }).click();
   await add(page, 'custom-two-u-panel', 'BATCH', 'CAB-A01', 41);
+  const dialog=page.getByRole('dialog',{name:'Add equipment from template',exact:true});
+  await expect(dialog.locator('.equipment-prefixed-port-input>span')).toHaveText('B');
+  await page.getByRole('spinbutton',{name:'Starting port number',exact:true}).fill('481');
+  await expect(dialog).toContainText('1 × 48 ports: B481–B528');
   await page.getByRole('spinbutton', { name: 'Quantity', exact: true }).fill('9');
   await page.getByRole('spinbutton', { name: 'Starting port number', exact: true }).fill('1');
   await page.getByRole('button', { name: 'Preview patch panels', exact: true }).click();
   const preview = page.getByRole('region', { name: 'Patch panel placement preview' });
-  await expect(preview).toContainText('385–432');
+  await expect(preview).toContainText('B001–B048');
+  await expect(preview).toContainText('B385–B432');
   await page.getByRole('button', { name: 'Create patch panels', exact: true }).click();
+  await expect(page.locator('.toast')).toContainText('ports B001–B432');
   const panels = (await saved(page)).locations[0].layout.racks[0].equipment;
   expect(panels.map(p => p.portStart)).toEqual([1, 49, 97, 145, 193, 241, 289, 337, 385]);
   await page.getByRole('button', { name: 'Add empty rack', exact: true }).click();
@@ -141,9 +148,10 @@ test('place a 2U switch, connect an uplink, move across racks and restore its ba
   await expect(page.locator('.connection-details')).toContainText('LAB-SW / Port 52');
   await page.getByRole('tab', { name: 'Equipment', exact: true }).click();
   await page.getByRole('button', { name: 'Move equipment', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Equipment change impact' })).toContainText('NEW-0001');
+  await expect(page.getByRole('region', { name: 'Equipment change impact' })).toContainText('CBL-0001');
   await page.getByRole('combobox', { name: 'Destination rack', exact: true }).selectOption('CAB-A02');
   await page.getByRole('spinbutton', { name: 'Bottom rack unit', exact: true }).fill('8');
+  page.once('dialog',dialog=>dialog.accept());
   await page.getByRole('button', { name: 'Save equipment position', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Equipment', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Manage ports', exact: true }).click();
@@ -152,7 +160,7 @@ test('place a 2U switch, connect an uplink, move across racks and restore its ba
   await expect(page.locator('[data-empty-unit="CAB-A01/16"], [data-empty-unit="CAB-A01/17"]')).toHaveCount(2);
   await expect(page.locator('[data-empty-unit="CAB-A02/8"], [data-empty-unit="CAB-A02/9"]')).toHaveCount(0);
   let project = await saved(page);
-  expect(project.locations[0].layout.cables.find(c => c.id === 'NEW-0001')!.from).toEqual({ rackId: 'CAB-A02', equipmentId: 'LAB-SW', port: 52 });
+  expect(project.locations[0].layout.cables.find(c => c.id === 'CBL-0001')!.from).toEqual({ rackId: 'CAB-A02', equipmentId: 'LAB-SW', port: 52 });
   expect(project.locations[0].layout.portVlans!['CAB-A02/LAB-SW/52']).toBe(60);
   expect(project.locations[0].layout.portVlans!['CAB-A01/LAB-SW/52']).toBeUndefined();
   await page.getByRole('button', { name: 'View connection', exact: true }).click();
@@ -162,7 +170,7 @@ test('place a 2U switch, connect an uplink, move across racks and restore its ba
   expect(pathStart.x).toBeCloseTo(socket.x, 3); expect(pathStart.y).toBeCloseTo(socket.y, 3);
   await page.getByRole('tab', { name: 'Equipment', exact: true }).click();
   await page.getByRole('button', { name: 'Remove equipment', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Equipment change impact' })).toContainText('NEW-0001');
+  await expect(page.getByRole('region', { name: 'Equipment change impact' })).toContainText('CBL-0001');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   const pending = page.waitForEvent('download'); await page.getByRole('button', { name: 'Export', exact: true }).click();
   const backup = await readFile((await (await pending).path())!);

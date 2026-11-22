@@ -211,3 +211,53 @@ test('zoom survives equipment and rack edits, view changes, units, reload and ba
   await expect(page.locator('.zoom-control span')).toHaveText(fit!);
   expect(errors).toEqual([]);
 });
+
+for (const single of [false,true]) test(`${single?'single':'multiple'} rack touchpad pinch zooms the workspace and preserves native panning`, async ({page}) => {
+  await page.goto('/#/cabinets');
+  await page.evaluate(()=>{
+    const project=JSON.parse(localStorage.getItem('porttracker.project')!);
+    project.preferences.rackZoom=1.5;project.preferences.singleRackZoom=3;
+    localStorage.setItem('porttracker.project',JSON.stringify(project));
+  });
+  await page.reload();
+  await page.getByRole('button',{name:single?'Single rack':'Multiple racks',exact:true}).click();
+  const viewport=page.locator('.rack-viewport');
+  const scale=()=>page.locator('.scene-frame > div').evaluate(el=>new DOMMatrix(getComputedStyle(el).transform).a);
+  await viewport.evaluate(el=>{el.scrollLeft=100;el.scrollTop=200;});
+  const bounds=(await viewport.boundingBox())!,pointer={x:Math.round(bounds.x+bounds.width*.4),y:Math.round(bounds.y+bounds.height*.4)};
+  const scenePoint=()=>viewport.evaluate((el,p)=>{
+    const frame=el.querySelector('.scene-frame')!,r=frame.getBoundingClientRect(),s=new DOMMatrix(getComputedStyle(frame.firstElementChild!).transform).a;
+    return {x:(p.x-r.left)/s,y:(p.y-r.top)/s};
+  },pointer);
+  const pageMetrics=()=>page.evaluate(()=>({viewport:visualViewport!.scale,pixelRatio:devicePixelRatio,header:document.querySelector('.topbar')!.getBoundingClientRect().height}));
+  const pageBefore=await pageMetrics(),pointBefore=await scenePoint(),initial=await scale();
+  const dataBefore=await page.evaluate(()=>JSON.parse(localStorage.getItem('porttracker.project')!).locations);
+  await page.mouse.move(pointer.x,pointer.y);
+  await page.keyboard.down('Control');await page.mouse.wheel(0,-120);await page.keyboard.up('Control');
+  await expect.poll(scale).toBeGreaterThan(initial);
+  const enlarged=await scale(),pointAfter=await scenePoint();
+  expect(pointAfter.x).toBeCloseTo(pointBefore.x,0);expect(pointAfter.y).toBeCloseTo(pointBefore.y,0);
+  expect(await pageMetrics()).toEqual(pageBefore);
+  await page.keyboard.down('Control');await page.mouse.wheel(0,120);await page.keyboard.up('Control');
+  await expect.poll(scale).toBeCloseTo(initial,5);
+  const scrollBefore=await viewport.evaluate(el=>({x:el.scrollLeft,y:el.scrollTop}));
+  await page.mouse.wheel(40,60);
+  await expect.poll(()=>viewport.evaluate(el=>el.scrollTop)).toBeGreaterThan(scrollBefore.y);
+  expect(await viewport.evaluate(el=>el.scrollLeft)).toBeGreaterThan(scrollBefore.x);
+  expect(await scale()).toBeCloseTo(initial,5);
+  await page.keyboard.down('Control');await page.mouse.wheel(0,-120);await page.keyboard.up('Control');
+  await expect.poll(scale).toBeCloseTo(enlarged,5);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('porttracker.project')!).locations)).toEqual(dataBefore);
+  await page.reload();await page.getByRole('button',{name:single?'Single rack':'Multiple racks',exact:true}).click();
+  await expect.poll(scale).toBeCloseTo(enlarged,5);
+  await page.getByRole('link',{name:'Facility',exact:true}).click();
+  await page.getByRole('link',{name:'Racks',exact:true}).click();
+  await expect(viewport).toBeVisible();
+  // Returning to the rack page must attach the listener to the new viewport.
+  await viewport.dispatchEvent('wheel',{ctrlKey:true,deltaY:10000,clientX:pointer.x,clientY:pointer.y});
+  await expect.poll(scale).toBeCloseTo(.12,5);
+  await viewport.dispatchEvent('wheel',{ctrlKey:true,deltaY:-10000,clientX:pointer.x,clientY:pointer.y});
+  await expect.poll(scale).toBe(single?8:2);
+  await page.getByRole('button',{name:'Fit',exact:true}).click();
+  await expect.poll(scale).toBeLessThan(single?8:2);
+});

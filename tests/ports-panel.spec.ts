@@ -1,0 +1,32 @@
+import {test,expect} from '@playwright/test';
+
+for(const mobile of [false,true])test(`${mobile?'mobile':'desktop'} Ports panel omits browsing controls and selects directly from the rack`,async({page})=>{
+  if(mobile)await page.setViewportSize({width:390,height:844});
+  await page.goto('/');await page.getByRole('tab',{name:'Ports',exact:true}).click();
+  const inspector=page.locator('.port-browser');
+  await expect(inspector.getByRole('combobox',{name:'Browse rack',exact:true})).toHaveCount(0);
+  await expect(inspector.getByRole('combobox',{name:'Browse equipment',exact:true})).toHaveCount(0);
+  await expect(inspector.getByRole('checkbox',{name:'Select multiple ports',exact:true})).toHaveCount(0);
+  const port=(n:number)=>page.locator(`[data-port="CAB-A01/PP-A04/${n}"]`);
+  await port(24).press('Enter');
+  const card=page.getByRole('region',{name:'Selected port details',exact:true});
+  await expect(card).toContainText('PP-A04 / Port 24');
+  await expect(page.getByRole('combobox',{name:'Facility location',exact:true})).toBeVisible();
+  await port(22).press('Shift+Enter');
+  const table=page.getByRole('table',{name:'Selected ports',exact:true});await expect(table.locator('tbody tr')).toHaveCount(3);
+  await expect(inspector.getByRole('button',{name:/^Select all/})).toHaveCount(0);
+  await expect(inspector.locator('.port-selection-tools,.bulk-port-count')).toHaveCount(0);
+  const heading=inspector.locator('.port-selection-heading');
+  const count=await heading.getByRole('heading',{name:'3 selected ports',exact:true}).boundingBox();
+  const clear=await heading.getByRole('button',{name:'Clear selection',exact:true}).boundingBox();
+  expect(clear!.x).toBeGreaterThan(count!.x+count!.width);
+  expect(Math.abs(clear!.y+clear!.height/2-count!.y-count!.height/2)).toBeLessThan(2);
+  await page.locator('[data-port="CAB-A02/SW-B01/48"]').press('Control+Enter');await expect(table.locator('tbody tr')).toHaveCount(4);
+  await heading.getByRole('button',{name:'Clear selection',exact:true}).click();await expect(table).toHaveCount(0);
+  await expect(page.locator('.rack-port[aria-pressed="true"]')).toHaveCount(0);
+  await port(23).press('Enter');await expect(table).toHaveCount(0);await expect(card).toContainText('PP-A04 / Port 23');
+  await inspector.locator('.port-chooser>summary').click();
+  await inspector.locator('[data-grid-port="CAB-A01/PP-A04/24"]').click();await expect(card).toContainText('PP-A04 / Port 24');
+  await page.getByRole('button',{name:'Done choosing ports',exact:true}).click();
+  await page.locator('.right-sidebar').screenshot({path:`artifacts/ports-panel-clean-${mobile?'mobile':'desktop'}.png`});
+});

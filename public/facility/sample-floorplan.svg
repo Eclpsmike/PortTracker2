@@ -2,8 +2,6 @@
   <title>Building A, Floor 1 architectural plan</title>
   <desc>Single-floor office with a central corridor, conference room, five offices, IDF, break room, and open office. Network equipment and routes are editable overlays in PortTracker.</desc>
   <defs>
-    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#dfe8ef" stroke-width=".55"/></pattern>
-    <pattern id="raised-floor" width="25" height="25" patternUnits="userSpaceOnUse"><rect width="25" height="25" fill="#f5f8fa"/><path d="M25 0H0V25" fill="none" stroke="#dce5eb" stroke-width=".65"/></pattern>
     <g id="chair" fill="#f9fbfc" stroke="#9baebc" stroke-width="1">
       <rect x="-10" y="-8" width="20" height="17" rx="4"/><path d="M-10-4H10M-8 11H8" fill="none"/>
     </g>
@@ -25,8 +23,7 @@
   <rect width="1100" height="650" fill="#f5f9fc"/>
   <rect x="40" y="55" width="1020" height="530" fill="#fff"/>
   <rect x="40" y="275" width="1020" height="80" fill="#edf4f9"/>
-  <rect x="700" y="60" width="175" height="210" fill="url(#raised-floor)"/>
-  <rect width="1100" height="650" fill="url(#grid)"/>
+  <rect x="700" y="60" width="175" height="210" fill="#f5f8fa"/>
 
   <!-- Structural walls follow the original starter's room boundaries. -->
   <g fill="none" stroke-linejoin="miter">

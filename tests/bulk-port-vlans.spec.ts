@@ -49,7 +49,7 @@ test('bulk port selection supports toggles, ranges and independent VLAN assignme
   expect(errors).toEqual([]);
 });
 
-test('mobile bulk assignment supports all 48 switch ports and clears selection on device changes and reset', async ({ page }) => {
+test('mobile bulk assignment retains selected ports across device and rack changes and clears them on reset', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await page.getByRole('tab', { name: 'Ports', exact: true }).click();
@@ -61,17 +61,17 @@ test('mobile bulk assignment supports all 48 switch ports and clears selection o
   await page.getByRole('button', { name: 'Apply to 48 selected ports' }).click();
   await expect(page.locator('.port-grid [data-vlan="60"]')).toHaveCount(48);
   await page.getByRole('combobox', { name: 'Browse equipment' }).selectOption('PP-A01');
-  await expect(page.locator('.bulk-port-count')).toHaveText('0 ports selected');
-  await expect(page.getByRole('button', { name: 'Apply to 0 selected ports' })).toBeDisabled();
+  await expect(page.locator('.bulk-port-count')).toHaveText('48 ports selected');
+  await expect(page.getByRole('button', { name: 'Apply to 48 selected ports' })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: 'VLAN for selected ports' })).toHaveValue('');
   await page.getByRole('button', { name: 'Port 24, available', exact: true }).click();
   await page.getByRole('combobox', { name: 'Browse rack' }).selectOption('CAB-A02');
-  await expect(page.locator('.bulk-port-count')).toHaveText('0 ports selected');
+  await expect(page.locator('.bulk-port-count')).toHaveText('49 ports selected');
   await page.getByRole('button', { name: 'Port 24, available', exact: true }).focus();
   await page.keyboard.press('Space');
-  await expect(page.locator('.bulk-port-count')).toHaveText('1 port selected');
+  await expect(page.locator('.bulk-port-count')).toHaveText('50 ports selected');
   await page.getByRole('combobox', { name: 'VLAN for selected ports' }).selectOption('99');
-  await page.getByRole('button', { name: 'Apply to 1 selected port' }).click();
+  await page.getByRole('button', { name: 'Apply to 50 selected ports' }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'artifacts/bulk-port-vlans-mobile.png', fullPage: true });
   page.once('dialog', dialog => dialog.accept());

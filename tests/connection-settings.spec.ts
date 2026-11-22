@@ -1,0 +1,75 @@
+import { test, expect } from '@playwright/test';
+import { defaultProject } from '../src/project';
+import { defaultConfiguration } from '../src/configuration';
+
+test('default cable color starts blue, persists changes, and leaves existing cables unchanged', async ({ page }) => {
+  const project = defaultProject(defaultConfiguration(), 'metric');
+  // Exercise the default for older saved configurations as well.
+  delete project.configuration.defaultCableColor;
+  const existing = project.locations[0].layout.cables.find(cable => cable.id === 'CR-0018')!;
+  await page.addInitScript(project => { if (!localStorage.getItem('porttracker.project')) localStorage.setItem('porttracker.project', JSON.stringify(project)); }, project);
+  await page.goto('/#/configuration/stock');
+  const colors = page.getByRole('region', { name: 'Cable colors', exact: true });
+  const defaultColor = colors.getByRole('combobox', { name: 'Default cable color', exact: true });
+  await expect(defaultColor).toHaveValue('#159de7');
+  await defaultColor.selectOption('#9b59b6');
+  await page.reload();await expect(defaultColor).toHaveValue('#9b59b6');
+  await colors.getByRole('button', { name: 'Edit cable color Purple', exact: true }).click();
+  await colors.getByLabel('Jacket color', { exact: true }).fill('#8855cc');
+  await colors.getByRole('button', { name: 'Save cable color', exact: true }).click();
+  await expect(defaultColor).toHaveValue('#8855cc');
+  await expect(colors.getByRole('button', { name: 'Remove cable color Purple', exact: true })).toBeDisabled();
+  await page.goto('/#/cabinets');
+  await page.getByRole('button', { name: 'New connection', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const color = dialog.getByRole('combobox', { name: 'Cable color', exact: true });
+  await expect(color).toHaveValue('#8855cc');
+  await color.selectOption('#f3cf19');
+  await dialog.getByRole('combobox', { name: 'To equipment', exact: true }).selectOption('SW-B01');
+  await expect(color).toHaveValue('#f3cf19');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
+  await expect(color).toHaveValue(existing.jacket);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
+  expect(saved.configuration.defaultCableColor).toBe('#8855cc');
+  expect(saved.locations[0].layout.cables).toEqual(project.locations[0].layout.cables);
+});
+
+for (const noVlans of [false, true]) test(`connection settings derive VLAN with ${noVlans ? 'no VLAN catalog' : 'assigned switch ports'} and use configured colors`, async ({ page }) => {
+  const configuration = defaultConfiguration();
+  configuration.cableColors = [{ name: 'Site blue', color: '#123456' }];
+  if (noVlans) configuration.vlans = [];
+  const project = defaultProject(configuration, 'metric');
+  if (!noVlans) project.locations[0].layout.portVlans!['CAB-A01/SW-A01/48'] = 99;
+  await page.addInitScript(project => { if (!localStorage.getItem('porttracker.project')) localStorage.setItem('porttracker.project', JSON.stringify(project)); }, project);
+  await page.goto('/#/configuration/stock');
+  const colors = page.getByRole('region', { name: 'Cable colors', exact: true });
+  await colors.getByRole('textbox', { name: 'Color name', exact: true }).fill('Site purple');
+  await colors.getByLabel('Jacket color', { exact: true }).fill('#8855cc');
+  await colors.getByRole('button', { name: 'Add cable color', exact: true }).click();
+  await page.reload();await expect(colors.getByRole('table')).toContainText('Site purple');
+  await page.goto('/#/cabinets');await page.getByRole('tab', { name: 'Ports', exact: true }).click();
+  await page.locator('[data-port="CAB-A01/PP-A04/24"]').press('Enter');
+  await page.locator('[data-port="CAB-A01/SW-A01/48"]').press('Control+Enter');
+  await page.getByRole('button', { name: 'Connect selected ports', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create connection', exact: true });
+  await expect(dialog.getByRole('combobox', { name: 'Cable medium', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('combobox', { name: 'Logical VLAN', exact: true })).toHaveCount(0);
+  await expect(dialog.locator('input[type="color"]')).toHaveCount(0);
+  const color = dialog.getByRole('combobox', { name: 'Cable color', exact: true });
+  await expect(color.locator('option')).toHaveText(['Site blue', 'Site purple']);
+  await color.selectOption('#8855cc');
+  await dialog.getByRole('button', { name: 'Create connection', exact: true }).click();
+  await page.reload();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
+  const cable = saved.locations[0].layout.cables.find((value: { id: string }) => value.id === 'CBL-0001');
+  expect(cable.jacket).toBe('#8855cc');expect(cable.medium).toBe('copper');
+  expect(cable.vlan).toBe(noVlans ? null : 99);
+  expect(saved.locations[0].layout.portVlans).toEqual(project.locations[0].layout.portVlans);
+  // Search reopens the new connection after reload, regardless of the default selection.
+  const search = page.getByRole('searchbox', { name: 'Search rack workspace', exact: true });
+  await search.fill('CBL-0001');await search.press('Enter');
+  await page.getByRole('button', { name: 'Edit connection', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Cable color', exact: true })).toHaveValue('#8855cc');
+});

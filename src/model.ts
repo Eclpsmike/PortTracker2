@@ -1,6 +1,6 @@
 import { validPortRange, MAX_PORT_NUMBER } from './portNumbering';
-import { type PortMedia, type FiberCable, type FiberStock, validPortMedia, validFiberCable, portMedium, isSlot, matchingFiberStock } from './media';
-import { findEquipmentTemplate, compatibleTemplate, templatePort, type EquipmentTemplate } from './equipmentTemplates';
+import { type PortMedia, type FiberCable, type FiberStock, validPortMedia, mediaLabel, validFiberCable, portMedium, isSlot, matchingFiberStock } from './media';
+import { findEquipmentTemplate, compatibleTemplate, templatePort, portFace, interfacePortLabel, type EquipmentTemplate } from './equipmentTemplates';
 export type Side = 'left' | 'right';
 export type EquipmentKind = 'patch-panel' | 'switch';
 export interface SwitchStack { id: string; name: string; managementAddress: string; interfaceNaming: 'juniper' | 'cisco' | 'template' }
@@ -11,7 +11,7 @@ export const portIndex = (equipment: Equipment, port: number) => port - firstPor
 export const portNumbers = (equipment: Equipment) => Array.from({ length: equipment.portCount }, (_, i) => firstPortNumber(equipment) + i);
 export interface Rack { id: string; label: string; heightU: number; positionM: number; verticalManagement?: boolean; equipment: Equipment[] }
 export interface Endpoint { rackId: string; equipmentId: string; port: number }
-export interface Cable { id: string; from: Endpoint; to: Endpoint; jacket: string; vlan: number; medium?: 'copper' | 'fiber'; fiber?: FiberCable }
+export interface Cable { id: string; from: Endpoint; to: Endpoint; jacket: string; vlan: number | null; medium?: 'copper' | 'fiber'; fiber?: FiberCable }
 export type PortVlans = Record<string, number>;
 export interface PatchPortDetails { facilityLocation: string; notes: string }
 export const PORT_LOCATION_MAX = 250;
@@ -55,14 +55,19 @@ export function removeEmptyStacks(layout: Layout): Layout {
   return { ...layout, stacks: layout.stacks.filter(stack => used.has(stack.id)) };
 }
 export function interfaceName(layout: Layout, equipment: Equipment, port: number): string {
-  const source = templatePort(equipment, port, layout.templates)?.name ?? '';
+  const socket = templatePort(equipment, port, layout.templates);
+  const source = socket?.manual ? '' : socket?.name ?? '';
   if (!equipment.stack) return source;
   const naming = equipmentStack(layout, equipment)?.interfaceNaming;
   if (naming === 'juniper') return source.replace(/^((?:ge|xe|et|mge)-)\d+(\/\d+\/\d+(?::\d+)?(?:\.\d+)?)$/, (_match, prefix: string, suffix: string) => `${prefix}${equipment.stack!.member}${suffix}`);
   if (naming === 'cisco') return source.replace(/^((?:FastEthernet|GigabitEthernet|TenGigabitEthernet|TwentyFiveGigE|FortyGigabitEthernet|HundredGigE))\d+(\/\d+\/\d+(?::\d+)?(?:\.\d+)?)$/, (_match, prefix: string, suffix: string) => `${prefix}${equipment.stack!.member}${suffix}`);
   return source;
 }
-export const vlanColor = (vlan: number, vlans: readonly Vlan[] = VLANS) => vlans.find(v => v.id === vlan)?.color ?? '#91a4b5';
+export function equipmentPortLabel(layout: Layout, equipment: Equipment, port: number): string {
+  const socket = templatePort(equipment, port, layout.templates);
+  return equipment.kind === 'switch' ? socket?.label || interfacePortLabel(socket?.manual ? socket.name ?? '' : interfaceName(layout, equipment, port)) || String(port) : String(port);
+}
+export const vlanColor = (vlan: number | null, vlans: readonly Vlan[] = VLANS) => vlans.find(v => v.id === vlan)?.color ?? '#91a4b5';
 export function makeRack(index: number, heightU = 42): Rack {
   const id = `CAB-A${String(index + 1).padStart(2, '0')}`;
   let ordinal = index + 1, letter = '';
@@ -85,7 +90,12 @@ export function setEquipmentTemplate(layout: Layout, rackId: string, equipmentId
     const target = template?.ports[portIndex(equipment, port)]?.media ?? { kind: 'copper' };
     if (JSON.stringify(existing) !== JSON.stringify(target)) portMedia[endpointKey(ep)] = existing;
   }
-  return { ...layout, ...(Object.keys(portMedia).length && { portMedia }), racks: layout.racks.map(rack => rack.id === rackId ? { ...rack, equipment: rack.equipment.map(e => e.id === equipmentId ? updated : e) } : rack) };
+  const next = { ...layout, ...(Object.keys(portMedia).length && { portMedia }), racks: layout.racks.map(rack => rack.id === rackId ? { ...rack, equipment: rack.equipment.map(e => e.id === equipmentId ? updated : e) } : rack) };
+  for (const cable of next.cables) {
+    const problem = cableMediaError(next, cable);
+    if (problem) throw new Error(`${cable.id}: ${problem}`);
+  }
+  return next;
 }
 
 export const equipmentTopU = (equipment: Pick<Equipment, 'bottomU' | 'heightU'>) => equipment.bottomU + equipment.heightU - 1;
@@ -199,7 +209,7 @@ export function fixtureLayout(vlans: readonly Vlan[] = VLANS): Layout {
   const validCables = cables.filter(c => vlans.some(v => v.id === c.vlan));
   // Seed demo assignments once. Later cable edits never mutate port VLANs.
   const portVlans: PortVlans = {};
-  for (const cable of validCables) for (const endpoint of [cable.from, cable.to]) portVlans[endpointKey(endpoint)] = cable.vlan;
+  for (const cable of validCables) for (const endpoint of [cable.from, cable.to]) if (cable.vlan !== null) portVlans[endpointKey(endpoint)] = cable.vlan;
   return { racks, cables: validCables, portVlans };
 }
 export function resolveEquipment(layout: Layout, rackId: string, equipmentId: string) {
@@ -215,7 +225,23 @@ export function resolveEndpoint(layout: Layout, ep: Endpoint) {
   return { rack, equipment };
 }
 export function portVlan(layout: Layout, endpoint: Endpoint): number | null {
+  const equipment = layout.racks.find(rack => rack.id === endpoint.rackId)?.equipment.find(item => item.id === endpoint.equipmentId);
+  if (!equipment || !Number.isInteger(endpoint.port) || portIndex(equipment, endpoint.port) < 0 || portIndex(equipment, endpoint.port) >= equipment.portCount) return null;
+  if (!isNetworkPort(layout, endpoint)) return null;
+  if (equipment.kind === 'patch-panel') {
+    const cable = layout.cables.find(c => sameEndpoint(c.from, endpoint) || sameEndpoint(c.to, endpoint));
+    if (!cable) return null;
+    const peer = sameEndpoint(cable.from, endpoint) ? cable.to : cable.from;
+    if (resolveEndpoint(layout, peer).equipment.kind !== 'switch' || !isNetworkPort(layout, peer)) return null;
+    return layout.portVlans?.[endpointKey(peer)] ?? null;
+  }
   return layout.portVlans?.[endpointKey(endpoint)] ?? null;
+}
+// Use the connected switch ports, never a saved cable VLAN or a panel's previous peer.
+// Links without a switch, or with differing switch VLANs, have no single VLAN.
+export function connectionPortVlan(layout: Layout, cable: Pick<Cable, 'from' | 'to'>): number | null {
+  const values = [cable.from, cable.to].filter(endpoint => resolveEndpoint(layout, endpoint).equipment.kind === 'switch').map(endpoint => portVlan(layout, endpoint));
+  return values.length && values.every(value => value === values[0]) ? values[0] : null;
 }
 export function assignPortVlan(layout: Layout, endpoint: Endpoint, vlan: number | null, vlans: readonly Vlan[] = VLANS): Layout {
   return assignPortVlans(layout, [endpoint], vlan, vlans);
@@ -226,6 +252,8 @@ export function assignPortVlans(layout: Layout, endpoints: readonly Endpoint[], 
   if (vlan !== null && !vlans.some(v => v.id === vlan)) throw new Error('Choose a configured VLAN.');
   const portVlans = { ...layout.portVlans };
   for (const endpoint of endpoints) {
+    // Panels derive their VLAN from the connected switch, never a local override.
+    if (resolveEndpoint(layout, endpoint).equipment.kind !== 'switch' || !isNetworkPort(layout, endpoint)) continue;
     if (vlan === null) delete portVlans[endpointKey(endpoint)];
     else portVlans[endpointKey(endpoint)] = vlan;
   }
@@ -233,13 +261,31 @@ export function assignPortVlans(layout: Layout, endpoints: readonly Endpoint[], 
 }
 
 export function patchPortDetails(layout: Layout, endpoint: Endpoint): PatchPortDetails {
-  return layout.portDetails?.[endpointKey(endpoint)] ?? { facilityLocation: '', notes: '' };
+  const details = layout.portDetails?.[endpointKey(endpoint)] ?? { facilityLocation: '', notes: '' };
+  const equipment = layout.racks.find(rack => rack.id === endpoint.rackId)?.equipment.find(item => item.id === endpoint.equipmentId);
+  if (equipment?.kind !== 'switch') return details;
+  const cable = layout.cables.find(c => sameEndpoint(c.from, endpoint) || sameEndpoint(c.to, endpoint));
+  const peer = cable ? (sameEndpoint(cable.from, endpoint) ? cable.to : cable.from) : null;
+  const facilityLocation = peer && resolveEndpoint(layout, peer).equipment.kind === 'patch-panel'
+    ? layout.portDetails?.[endpointKey(peer)]?.facilityLocation ?? '' : '';
+  return { ...details, facilityLocation };
 }
 export function validPortDetails(value: unknown): value is PatchPortDetails {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const details = value as Partial<PatchPortDetails>;
   return typeof details.facilityLocation === 'string' && details.facilityLocation.length <= PORT_LOCATION_MAX
     && typeof details.notes === 'string' && details.notes.length <= PORT_NOTES_MAX;
+}
+export function setPortNotes(layout: Layout, endpoint: Endpoint, notes: string): Layout {
+  resolveEndpoint(layout, endpoint);
+  if (typeof notes !== 'string' || notes.length > PORT_NOTES_MAX) throw new Error(`Use up to ${PORT_NOTES_MAX} characters for notes.`);
+  const key = endpointKey(endpoint);
+  // Edit only this port's stored notes; never copy its inherited location.
+  const details = { ...(layout.portDetails?.[key] ?? { facilityLocation: '' }), notes };
+  const portDetails = { ...layout.portDetails };
+  if (!details.facilityLocation && !notes) delete portDetails[key];
+  else portDetails[key] = details;
+  return { ...layout, portDetails };
 }
 export function setPatchPortDetails(layout: Layout, endpoint: Endpoint, details: PatchPortDetails): Layout {
   if (resolveEndpoint(layout, endpoint).equipment.kind !== 'patch-panel') throw new Error('Choose a patch-panel port.');
@@ -266,11 +312,19 @@ export function updatePatchPortsDetails(layout: Layout, endpoints: readonly Endp
   return { ...layout, portDetails };
 }
 
+export function isNetworkPort(layout: Layout, ep: Endpoint): boolean {
+  return templatePort(resolveEndpoint(layout, ep).equipment, ep.port, layout.templates)?.function !== 'console';
+}
+export function portPhysicalLabel(layout: Layout, ep: Endpoint): string {
+  const socket = templatePort(resolveEndpoint(layout, ep).equipment, ep.port, layout.templates);
+  return socket?.function === 'console' ? `Serial console · ${socket.consoleConnector}` : mediaLabel(getPortMedia(layout, ep));
+}
 export function getPortMedia(layout: Layout, ep: Endpoint): PortMedia {
   const { equipment } = resolveEndpoint(layout, ep);
   return layout.portMedia?.[endpointKey(ep)] ?? templatePort(equipment, ep.port, layout.templates)?.media ?? { kind: 'copper' };
 }
 export function cableMediaError(layout: Layout, cable: Cable): string | null {
+  if ([cable.from, cable.to].some(ep => !isNetworkPort(layout, ep))) return 'Serial console ports cannot use Ethernet or fiber connections. Console cabling is not supported yet.';
   if (cable.medium !== undefined && cable.medium !== 'copper' && cable.medium !== 'fiber') return 'Choose copper or fiber cable.';
   if (cable.medium === 'fiber' ? !validFiberCable(cable.fiber) : cable.fiber !== undefined) return 'Enter valid fiber mode, connectors, and strand count.';
   for (const side of ['from', 'to'] as const) {
@@ -292,7 +346,7 @@ export function setPortsMedia(layout: Layout, endpoints: Endpoint[], media: Port
   if (!endpoints.length) throw new Error('Select at least one port.');
   if (!validPortMedia(media)) throw new Error('Check the physical port settings.');
   const portMedia = { ...layout.portMedia };
-  for (const ep of endpoints) { resolveEndpoint(layout, ep); portMedia[endpointKey(ep)] = { ...media }; }
+  for (const ep of endpoints) { resolveEndpoint(layout, ep); if (!isNetworkPort(layout, ep)) throw new Error('Edit console connector settings in the equipment template.'); portMedia[endpointKey(ep)] = { ...media }; }
   const next = { ...layout, portMedia };
   const affected = new Set(endpoints.map(endpointKey));
   for (const cable of layout.cables.filter(c => affected.has(endpointKey(c.from)) || affected.has(endpointKey(c.to)))) {
@@ -307,10 +361,11 @@ export const endpointLabel = (ep: Endpoint, layout: Layout) => `${rackName(layou
 export function connectionError(layout: Layout, cable: Cable, vlans: readonly Vlan[] = VLANS): string | null {
   try { resolveEndpoint(layout, cable.from); resolveEndpoint(layout, cable.to); } catch (error) { return (error as Error).message; }
   if (sameEndpoint(cable.from, cable.to)) return 'A cable must connect two different ports.';
-  if (!vlans.some(v => v.id === cable.vlan)) return 'Choose a listed VLAN.';
+  if (cable.vlan !== null && !vlans.some(v => v.id === cable.vlan)) return 'Choose a listed VLAN.';
   if (layout.cables.some(c => c.id !== cable.id && [c.from, c.to].some(e => sameEndpoint(e, cable.from) || sameEndpoint(e, cable.to)))) return 'One of these ports is already connected. Choose a free port or edit its existing connection.';
   return cableMediaError(layout, cable);
 }
+export function endpointFace(layout: Layout, ep: Endpoint) { return portFace(resolveEndpoint(layout, ep).equipment, ep.port, layout.templates); }
 // Measurements are independent of drawing coordinates. Example template: port field spans 70% of rack width.
 function physicalEndpoint(layout: Layout, ep: Endpoint, cal: Calibration) {
   const { rack, equipment } = resolveEndpoint(layout, ep);
@@ -319,7 +374,8 @@ function physicalEndpoint(layout: Layout, ep: Endpoint, cal: Calibration) {
   // Explicit equipment width centers the face inside the outer rack frame.
   // Retain the old approximation only for projects without that measurement.
   const faceWidth = cal.equipmentWidthM ?? cal.rackWidthM * .8;
-  const socketX = socket?.x ?? .0625 + (column + .5) / 24 * .875;
+  const imageX = socket?.x ?? .0625 + (column + .5) / 24 * .875;
+  const socketX = endpointFace(layout, ep) === 'rear' ? 1 - imageX : imageX;
   const x = rack.positionM + managerExtension(rack, cal) + (cal.rackWidthM - faceWidth) / 2 + socketX * faceWidth;
   const topOffset = (Math.max(...layout.racks.map(r => r.heightU)) - equipmentTopU(equipment) + (socket?.y ?? .5) * equipment.heightU) * .04445;
   return { x, depth: topOffset, rack };
@@ -329,7 +385,7 @@ function physicalEndpoint(layout: Layout, ep: Endpoint, cal: Calibration) {
 export function endpointSide(layout: Layout, endpoint: Endpoint): Side {
   const { equipment } = resolveEndpoint(layout, endpoint);
   const socket = templatePort(equipment, endpoint.port, layout.templates) ?? (legacyFace(equipment) ? undefined : schematicSocket(equipment, endpoint.port));
-  if (socket) return socket.x < .5 ? 'left' : 'right';
+  if (socket) return (endpointFace(layout, endpoint) === 'rear' ? 1 - socket.x : socket.x) < .5 ? 'left' : 'right';
   return portIndex(equipment, endpoint.port) % 24 < 12 ? 'left' : 'right';
 }
 export function routeSides(layout: Layout, cable: Cable): { from: Side; to: Side } {

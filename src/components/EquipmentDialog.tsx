@@ -1,7 +1,8 @@
 import { interfaceName, rackName, equipmentName, type SwitchStack } from '../model';
+import { confirmEquipmentMove } from './confirmEquipmentMove';
 import { createStackEquipment, MAX_STACK_CREATE, MAX_STACK_MEMBER, nextStackMember, planStackMembers, setEquipmentStack, type StackPlacement } from '../stacks';
 import { createPatchPanels, planPatchPanels, MAX_PANEL_BATCH } from '../patchPanels';
-import { MAX_PORT_NUMBER } from '../portNumbering';
+import { formatPrefixedPortNumber, MAX_PORT_NUMBER } from '../portNumbering';
 import { StackDetailsFields } from './StackDetailsFields';
 import { RackPositionPreview } from './RackPositionPreview';
 import { useEffect, useRef, useState } from 'react';
@@ -9,8 +10,8 @@ import { EQUIPMENT_TEMPLATES, findEquipmentTemplate } from '../equipmentTemplate
 import { type Endpoint, type Layout, type EquipmentPlacement, addEquipment, moveEquipment, removeEquipment, nextEquipmentId, firstFreeUnit, placementError, equipmentRemovalImpact, equipmentUnits, endpointLabel } from '../model';
 import { Icon } from './Icon';
 export type EquipmentAction = { kind: 'add'; templateId?: string } | { kind: 'move' | 'remove'; endpoint: Endpoint };
-export function EquipmentDialog({ layout, action, locationName, initialRackId, onClose, onSave }: {
-  layout: Layout; action: EquipmentAction; locationName: string; initialRackId: string; onClose: () => void;
+export function EquipmentDialog({ layout, action, locationName, portPrefix, initialRackId, onClose, onSave }: {
+  layout: Layout; action: EquipmentAction; locationName: string; portPrefix?: string; initialRackId: string; onClose: () => void;
   onSave: (layout: Layout, selected: Endpoint | null, message: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -41,6 +42,7 @@ export function EquipmentDialog({ layout, action, locationName, initialRackId, o
   const title = action.kind === 'add' ? 'Add equipment from template' : action.kind === 'move' ? 'Move equipment' : 'Remove equipment';
   const creatingStack = action.kind === 'add' && template?.kind === 'switch' && stackMode === 'create';
   const addingPanels = action.kind === 'add' && template?.kind === 'patch-panel';
+  const panelPortLabel = (number: number) => portPrefix ? formatPrefixedPortNumber(portPrefix, number) : String(number);
   const panelSignature = JSON.stringify([templateId, rackId, bottomU, id, label, panelQuantity, panelStart]);
   const panels = panelPreview?.signature === panelSignature ? panelPreview.rows : null;
   let panelConflict = '';
@@ -78,7 +80,7 @@ export function EquipmentDialog({ layout, action, locationName, initialRackId, o
           if (panelQuantity > 1 && !panels) { buildPanelPreview(); return; }
           const rows = panels ?? planPatchPanels(layout, draft, panelQuantity, panelStart);
           const next = createPatchPanels(layout, rows), first = rows[0];
-          onSave(next, { rackId: first.rackId, equipmentId: first.id, port: first.portStart! }, `${rows.length} patch panel(s) added with ports ${panelStart}–${panelStart + rows.length * template!.portCount - 1}.`);
+          onSave(next, { rackId: first.rackId, equipmentId: first.id, port: first.portStart! }, `${rows.length} patch panel(s) added with ports ${panelPortLabel(panelStart)}–${panelPortLabel(panelStart + rows.length * template!.portCount - 1)}.`);
         } else if (creatingStack) {
           if (!members) { buildPreview(); return; }
           const next = createStackEquipment(layout, stack, members), first = members[0];
@@ -88,7 +90,11 @@ export function EquipmentDialog({ layout, action, locationName, initialRackId, o
           if (stackMode !== 'standalone') next = setEquipmentStack(next, rackId, draft.id, stackMode, member);
           onSave(next, { rackId, equipmentId: draft.id, port: template?.portStart ?? 1 }, `${draft.label} added to ${rackName(layout, rackId)}.`);
         }
-      } else if (action.kind === 'move') onSave(moveEquipment(layout, action.endpoint.rackId, action.endpoint.equipmentId, rackId, bottomU), { ...action.endpoint, rackId }, `${equipmentName(layout, action.endpoint)} moved to ${rackName(layout, rackId)}. Connections and port data preserved.`);
+      } else if (action.kind === 'move') {
+        const next=moveEquipment(layout, action.endpoint.rackId, action.endpoint.equipmentId, rackId, bottomU);
+        if(!confirmEquipmentMove(layout,action.endpoint.rackId,action.endpoint.equipmentId,rackId,bottomU))return;
+        onSave(next, { ...action.endpoint, rackId }, `${equipmentName(layout, action.endpoint)} moved to ${rackName(layout, rackId)}. Connections and port data preserved.`);
+      }
       else onSave(removeEquipment(layout, action.endpoint.rackId, action.endpoint.equipmentId), null, `${equipmentName(layout, action.endpoint)} removed.`);
     } catch (e) { setError((e as Error).message); }
   }
@@ -106,8 +112,8 @@ export function EquipmentDialog({ layout, action, locationName, initialRackId, o
       </>}
       {addingPanels && <fieldset className="stack-setup"><legend>Patch panels</legend>
         <div className="form-row"><label>Quantity<input type="number" min={1} max={MAX_PANEL_BATCH} step={1} required value={Number.isNaN(panelQuantity) ? '' : panelQuantity} onChange={e => setPanelQuantity(e.target.valueAsNumber)}/></label>
-        <label>Starting port number<input type="number" min={0} max={MAX_PORT_NUMBER} step={1} required value={Number.isNaN(panelStart) ? '' : panelStart} onChange={e => setPanelStart(e.target.valueAsNumber)}/></label></div>
-        <p className="note">{Number.isInteger(panelQuantity) && Number.isInteger(panelStart) && `${panelQuantity} × ${template!.portCount} ports: ${panelStart}–${panelStart + panelQuantity * template!.portCount - 1}. `}Numbering continues across panels. Placement starts at the chosen unit and fills free space below it. Printed numbers in template images stay unchanged.</p>
+        <label>Starting port number<span className={portPrefix?'equipment-prefixed-port-input':undefined}>{portPrefix&&<span aria-hidden="true">{portPrefix}</span>}<input aria-label="Starting port number" aria-description={portPrefix&&Number.isInteger(panelStart)?`Starting port: ${panelPortLabel(panelStart)}`:undefined} type="number" min={0} max={MAX_PORT_NUMBER} step={1} required value={Number.isNaN(panelStart) ? '' : panelStart} onChange={e => setPanelStart(e.target.valueAsNumber)}/></span></label></div>
+        <p className="note">{Number.isInteger(panelQuantity) && Number.isInteger(panelStart) && `${panelQuantity} × ${template!.portCount} ports: ${panelPortLabel(panelStart)}–${panelPortLabel(panelStart + panelQuantity * template!.portCount - 1)}. `}Numbering continues across panels. Placement starts at the chosen unit and fills free space below it. Printed numbers in template images stay unchanged.</p>
       </fieldset>}
       {impact && <p><strong>{impact.equipment.label}</strong> · {impact.rack.label} · {equipmentUnits(impact.equipment)} · {impact.equipment.portCount} ports</p>}
       {action.kind === 'add' && template?.kind === 'switch' && <fieldset className="stack-setup"><legend>Stack / Virtual Chassis</legend>
@@ -139,7 +145,7 @@ export function EquipmentDialog({ layout, action, locationName, initialRackId, o
           return <tr key={row.id}><td>{i + 1}</td><td><input aria-label={`Panel name ${i + 1}`} required maxLength={100} value={row.label} onChange={e => update({ label: e.target.value })}/></td>
             <td><select aria-label={`Panel rack ${i + 1}`} value={row.rackId} onChange={e => update({ rackId: e.target.value })}>{layout.racks.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></td>
             <td><input aria-label={`Panel bottom unit ${i + 1}`} type="number" min={1} max={layout.racks.find(r => r.id === row.rackId)?.heightU} step={1} required value={Number.isNaN(row.bottomU) ? '' : row.bottomU} onChange={e => update({ bottomU: e.target.valueAsNumber })}/></td>
-            <td>{row.portStart}–{row.portStart! + template!.portCount - 1}</td></tr>;
+            <td>{panelPortLabel(row.portStart!)}–{panelPortLabel(row.portStart! + template!.portCount - 1)}</td></tr>;
         })}</tbody></table></div>
       </section>}
       {panelConflict && <p className="form-error" role="status">{panelConflict}</p>}

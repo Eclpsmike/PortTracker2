@@ -79,8 +79,11 @@ test('bulk details apply to all panel ports on mobile and reset drafts when sele
   await expect(page.locator('.port-grid .port-info-marker')).toHaveCount(24);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('combobox', { name: 'Browse equipment' }).selectOption('PP-A03');
-  await expect(page.getByRole('button', { name: 'Apply details to 0 ports', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Apply details to 24 ports', exact: true })).toBeDisabled();
   await expect(page.locator('.port-grid .port-info-marker')).toHaveCount(0);
   await page.getByRole('combobox', { name: 'Browse equipment' }).selectOption('SW-A01');
+  await expect(page.getByRole('region', { name: 'Bulk patch-panel port details' })).toBeVisible();
+  await page.getByRole('button', { name: 'Port 48, available', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Bulk patch-panel port details' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Bulk port location assignment' })).toBeVisible();
 });

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { defaultProject } from '../src/project';
 import { defaultConfiguration } from '../src/configuration';
+import { stackProject } from './stack-fixture';
 
 for (const mobile of [false, true]) test(`${mobile ? 'mobile' : 'desktop'} connections retain all details after browsing equipment`, async ({ page }) => {
   if (mobile) await page.setViewportSize({ width: 390, height: 844 });
@@ -53,14 +54,106 @@ for (const mobile of [false, true]) test(`${mobile ? 'mobile' : 'desktop'} conne
   const positions = await page.locator('.port-browser').evaluate(panel => {
     const bottom = (selector: string) => panel.querySelector(selector)!.getBoundingClientRect().bottom;
     const top = (selector: string) => panel.querySelector(selector)!.getBoundingClientRect().top;
-    return { summaryBottom: bottom('.selected-port-info'), pickerTop: top('.endpoint-picker'), gridBottom: bottom('.port-grid'), controlsTop: top('.selected-port-controls') };
+    return { pickerBottom: bottom('.endpoint-picker'), summaryTop: top('.selected-port-info'), summaryBottom: bottom('.selected-port-info'), chooserTop: top('.port-chooser'), chooserBottom: bottom('.port-chooser'), controlsTop: top('.selected-port-controls') };
   });
-  expect(positions.summaryBottom).toBeLessThan(positions.pickerTop);
-  expect(positions.gridBottom).toBeLessThan(positions.controlsTop);
+  expect(positions.pickerBottom).toBeLessThan(positions.summaryTop);
+  expect(positions.summaryBottom).toBeLessThan(positions.chooserTop);
+  expect(positions.chooserBottom).toBeLessThan(positions.controlsTop);
   await page.getByRole('checkbox', { name: 'Select multiple ports', exact: true }).check();
   await expect(page.locator('.selected-port-info')).toHaveCount(0);
   await page.reload();
   await expect(page.locator('.connection-details')).toContainText(`${switchName} / Port 18`);
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('porttracker.project')!));
   expect(saved.locations[0].layout.cables).toEqual(project.locations[0].layout.cables);
+});
+
+for(const mobile of [false,true])test(`${mobile?'mobile':'desktop'} port inspector switches between a single card and a selected-port table`,async({page})=>{
+  await page.setViewportSize(mobile?{width:390,height:844}:{width:1440,height:1000});
+  const project=defaultProject({...defaultConfiguration(),facilityLocations:[{name:'Office 201',color:'#159de7'}]},'metric');
+  project.locations[0].portPrefix='B';
+  project.locations[0].layout.portDetails={'CAB-A01/PP-A04/18':{facilityLocation:'Office 201',notes:'North wall outlet'}};
+  await page.addInitScript(project=>localStorage.setItem('porttracker.project',JSON.stringify(project)),project);
+  await page.goto('/');
+  const rackPort=(n:number)=>page.locator(`[data-port="CAB-A01/PP-A04/${n}"]`);
+  await rackPort(18).press('Enter');
+  const card=page.getByRole('region',{name:'Selected port details',exact:true});
+  const table=page.getByRole('table',{name:'Selected ports',exact:true});
+  await expect(card).toContainText('PP-A04 / Port B090');
+  await expect(card).toContainText('CR-0018');await expect(card).toContainText('Office 201');await expect(card).toContainText('North wall outlet');
+  await expect(page.locator('.port-grid')).not.toBeVisible();await expect(table).toHaveCount(0);
+  await page.getByRole('combobox',{name:'Port VLAN',exact:true}).selectOption('99');
+  await expect(card).toContainText('99');
+  await page.getByRole('checkbox',{name:'Select multiple ports',exact:true}).check();
+  await rackPort(18).press('Enter');await expect(card).toBeVisible();await expect(table).toHaveCount(0);
+  await rackPort(24).press('Enter');await expect(card).toHaveCount(0);
+  await expect(table.locator('tbody tr')).toHaveCount(2);
+  await expect(table).not.toContainText('North wall outlet');
+  await expect(table.locator('tbody')).toContainText('B090');await expect(table.locator('tbody')).toContainText('B096');
+  await expect(table.locator('[data-selected-port="CAB-A01/PP-A04/18"]')).toContainText('CR-0018');
+  await expect(table.locator('[data-selected-port="CAB-A01/PP-A04/24"]')).toContainText('Available');
+  await expect(page.locator('.port-grid')).not.toBeVisible();
+  expect(await page.locator('.selected-ports-table-scroll').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await table.screenshot({path:`artifacts/port-inspector-table-${mobile?'mobile':'desktop'}.png`});
+  await table.getByRole('button',{name:'Deselect port B096',exact:true}).click();
+  await expect(card).toContainText('B090');await expect(table).toHaveCount(0);
+  await page.getByRole('button',{name:'Select all 24 ports',exact:true}).click();
+  await expect(table.locator('tbody tr')).toHaveCount(24);
+  await page.getByRole('combobox',{name:'VLAN for selected ports',exact:true}).selectOption('60');
+  await page.getByRole('button',{name:'Apply to 24 selected ports',exact:true}).click();
+  await expect(table.locator('tbody tr td:nth-child(2)')).toHaveText(Array(24).fill('60'));
+  await page.getByRole('button',{name:'Clear selection',exact:true}).click();
+  await expect(table).toHaveCount(0);await expect(card).toHaveCount(0);
+  await expect(page.locator('.port-grid')).toBeVisible();
+  await page.getByRole('button',{name:'Port 23, available',exact:true}).click();
+  await page.getByRole('button',{name:'Done choosing ports',exact:true}).click();await expect(card).toContainText('B095');
+  await expect(page.locator('.port-grid')).not.toBeVisible();
+  await card.screenshot({path:`artifacts/port-inspector-card-${mobile?'mobile':'desktop'}.png`});
+  expect(await page.locator('.port-browser').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  if(mobile)expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
+for(const mobile of [false,true])test(`${mobile?'mobile':'desktop'} switch inspector shows interface, patched panel and inherited patch location without table notes`,async({page})=>{
+  if(mobile)await page.setViewportSize({width:390,height:844});
+  const project=stackProject(),frame=project.locations[0],layout=frame.layout;
+  frame.portPrefix='B';
+  project.configuration.facilityLocations=[{name:'COM B',color:'#159de7'},{name:'Shipping',color:'#2488aa'},{name:'Office 201',color:'#159de7'}];
+  const device=layout.racks[0].equipment.find(e=>e.id==='SW-A01')!;
+  device.templateId='custom-test-juniper';device.portStart=0;
+  layout.portVlans={};
+  layout.cables=[{...layout.cables[0],id:'NEW-0001',from:{rackId:'CAB-A01',equipmentId:'SW-A01',port:0},to:{rackId:'CAB-A01',equipmentId:'PP-A01',port:1}}];
+  layout.portDetails={
+    'CAB-A01/PP-A01/1':{facilityLocation:'COM B',notes:'Panel note only in card'},
+    'CAB-A01/SW-A01/0':{facilityLocation:'Shipping',notes:''},
+    'CAB-A01/SW-A01/1':{facilityLocation:'Shipping',notes:''},
+  };
+  await page.addInitScript(project=>{if(!localStorage.getItem('porttracker.project'))localStorage.setItem('porttracker.project',JSON.stringify(project));},project);
+  await page.goto('/');
+  const switchPort=(port:number)=>page.locator(`[data-port="CAB-A01/SW-A01/${port}"]`);
+  const card=page.getByRole('region',{name:'Selected port details',exact:true});
+  const patchLocation=()=>card.locator('dl>div').filter({has:page.locator('dt',{hasText:'Patch location'})}).locator('dd');
+  await switchPort(0).press('Enter');
+  await expect(card.locator('strong')).toHaveText('SW-A01 / Port 0/0/0');
+  await expect(card).toContainText('PP-A01 / Port B001');
+  await expect(patchLocation()).toHaveText('COM B');
+  await expect(card).toContainText('No notes');
+  await page.locator('[data-port="CAB-A01/PP-A01/1"]').press('Enter');
+  await expect(card).toContainText('SW-A01 / Port 0/0/0');
+  await expect(card).toContainText('Panel note only in card');
+  await page.getByRole('combobox',{name:'Facility location',exact:true}).selectOption('Office 201');
+  await switchPort(0).press('Enter');await expect(patchLocation()).toHaveText('Office 201');
+  await page.getByRole('checkbox',{name:'Select multiple ports',exact:true}).check();
+  await switchPort(0).press('Enter');await switchPort(1).press('Enter');
+  const table=page.getByRole('table',{name:'Selected ports',exact:true});
+  await expect(table.getByRole('columnheader',{name:'Patch location',exact:true})).toBeVisible();
+  const connected=table.locator('[data-selected-port="CAB-A01/SW-A01/0"]'),available=table.locator('[data-selected-port="CAB-A01/SW-A01/1"]');
+  await expect(connected.locator('strong')).toHaveText('0/0/0');await expect(connected).toContainText('Patch B001');
+  await expect(connected.locator('td').nth(1)).toHaveText('Office 201');
+  await expect(available.locator('strong')).toHaveText('0/0/1');await expect(available.locator('td').nth(1)).toHaveText('Unassigned');
+  await expect(table).not.toContainText('note');await expect(table).not.toContainText('Shipping');
+  await table.screenshot({path:`artifacts/switch-patch-inspector-${mobile?'mobile':'desktop'}.png`});
+  await table.getByRole('button',{name:'Deselect port 0/0/1',exact:true}).click();
+  await expect(card).toContainText('No notes');
+  await page.evaluate(()=>{const project=JSON.parse(localStorage.getItem('porttracker.project')!);project.locations[0].layout.cables=[];localStorage.setItem('porttracker.project',JSON.stringify(project));});
+  await page.reload();await switchPort(0).press('Enter');await expect(patchLocation()).toHaveText('Unassigned');
+  await expect(card).not.toContainText('B001');await expect(card).toContainText('No notes');
 });

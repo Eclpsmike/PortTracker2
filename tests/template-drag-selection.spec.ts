@@ -4,7 +4,7 @@ async function setup(page: Page, generate = true) {
   await page.goto('/#/configuration/templates');
   await page.getByRole('button', { name: 'Import template', exact: true }).click();
   await page.getByLabel('Device definition YAML').setInputFiles('public/equipment/netbox/24-port-copper-patch-panel.yaml');
-  await page.getByLabel('Equipment image', { exact: true }).setInputFiles('public/equipment/netbox/generic-24-port-copper-patch-panel.front.png');
+  await page.getByLabel('Front equipment image', { exact: true }).setInputFiles('public/equipment/netbox/generic-24-port-copper-patch-panel.front.png');
   await page.getByRole('button', { name: 'Continue to port mapping' }).click();
   await page.getByText('Start with a regular grid', { exact: true }).click();
   if (generate) await page.getByRole('button', { name: 'Generate port grid', exact: true }).click();

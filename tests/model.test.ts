@@ -17,7 +17,7 @@ import test from 'node:test';
 import { defaultConfiguration, parseConfiguration, vlanError, vlanRemovalError, stockLengthError } from '../src/configuration';
 import { fromMeters, toMeters, formatLengthValue } from '../src/units';
 import assert from 'node:assert/strict';
-import { fixtureLayout, makeRack, defaultCalibration, estimateCable, connectionError, resolveEndpoint, routeSides, endpointSide, cableRoute, assignPortVlan, assignPortVlans, portVlan, endpointKey, patchPortDetails, setPatchPortDetails, updatePatchPortsDetails, removeRack, rackRemovalImpact, setEquipmentTemplate, PORT_LOCATION_MAX, PORT_NOTES_MAX } from '../src/model';
+import { fixtureLayout, makeRack, defaultCalibration, estimateCable, connectionError, resolveEndpoint, routeSides, endpointSide, cableRoute, assignPortVlan, assignPortVlans, portVlan, endpointKey, patchPortDetails, setPortNotes, setPatchPortDetails, updatePatchPortsDetails, removeRack, rackRemovalImpact, setEquipmentTemplate, PORT_LOCATION_MAX, PORT_NOTES_MAX } from '../src/model';
 import { cablePoints, roundedPath, rackX, rackTop, RACK_WIDTH, portPoint, portSize, EQUIPMENT_FACE, equipmentImageBounds, sceneSize, equipmentFace, TOP, UNIT } from '../src/geometry';
 test('mixed-height racks share a floor and cable endpoints follow their shifted ports', () => {
   const layout = fixtureLayout();
@@ -243,7 +243,7 @@ test('stored configuration is validated and missing VLANs do not leave dangling 
 
 test('port VLANs can be assigned, reassigned and cleared without creating cables', () => {
   const original = fixtureLayout();
-  for (const equipmentId of ['PP-A04', 'SW-A01']) {
+  for (const equipmentId of ['SW-A01', 'SW-A02']) {
     const endpoint = { rackId: 'CAB-A01', equipmentId, port: 24 };
     assert.equal(portVlan(original, endpoint), null);
     const assigned = assignPortVlan(original, endpoint, 99);
@@ -263,23 +263,49 @@ test('port VLANs can be assigned, reassigned and cleared without creating cables
   }
 });
 
-test('connected ports retain independent assignments when cables change or are removed', () => {
+test('panel ports inherit switch VLANs and become unassigned when disconnected', () => {
   const original = fixtureLayout();
   const cable = original.cables.find(c => c.id === 'CR-0018')!;
-  const assigned = assignPortVlan(original, cable.from, 99);
+  const assigned = assignPortVlan(original, cable.to, 99);
   assert.equal(assigned.cables.find(c => c.id === cable.id)!.vlan, 30);
-  assert.equal(portVlan(assigned, cable.to), 30);
+  assert.equal(portVlan(assigned, cable.to), 99);
+  assert.equal(portVlan(assigned, cable.from), 99);
   const removed = { ...assigned, cables: assigned.cables.filter(c => c.id !== cable.id) };
-  assert.equal(portVlan(removed, cable.from), 99);
-  assert.equal(portVlan(removed, cable.to), 30);
+  assert.equal(portVlan(removed, cable.from), null);
+  assert.equal(portVlan(removed, cable.to), 99);
   assert.ok(vlanRemovalError(99, removed.cables, removed.portVlans));
   assert.deepEqual(JSON.parse(JSON.stringify(removed)).portVlans, removed.portVlans);
 });
 
 
+test('panel VLAN inheritance ignores legacy overrides and cable VLANs and follows repatching in either direction', () => {
+  const layout = fixtureLayout();
+  const cable = layout.cables.find(c => c.id === 'CR-0018')!;
+  const panel = cable.from, firstSwitch = cable.to;
+  const secondSwitch = { rackId: 'CAB-A01', equipmentId: 'SW-A01', port: 24 };
+  const sparePanel = { rackId: 'CAB-A01', equipmentId: 'PP-A04', port: 24 };
+  layout.portVlans![endpointKey(panel)] = 60;
+  layout.portVlans![endpointKey(sparePanel)] = 99;
+  assert.equal(portVlan(layout, panel), 30);
+  assert.equal(portVlan(layout, sparePanel), null);
+  const cleared = assignPortVlan(layout, firstSwitch, null);
+  assert.equal(portVlan(cleared, panel), null);
+  const assigned = assignPortVlans(cleared, [panel, sparePanel, secondSwitch], 99);
+  assert.equal(portVlan(assigned, panel), null);
+  assert.equal(portVlan(assigned, sparePanel), null);
+  assert.equal(portVlan(assigned, secondSwitch), 99);
+  const repatched = { ...assigned, cables: assigned.cables.map(c => c.id === cable.id ? { ...c, from: secondSwitch, to: panel } : c) };
+  assert.equal(portVlan(repatched, panel), 99);
+  assert.equal(repatched.cables.find(c => c.id === cable.id)!.vlan, 30);
+  assert.ok(portMatchesFilters(repatched, panel, { vlans: [99], locations: [] }));
+  const panelToPanel = { ...repatched, cables: repatched.cables.map(c => c.id === cable.id ? { ...c, from: sparePanel } : c) };
+  assert.equal(portVlan(panelToPanel, panel), null);
+  assert.equal(portVlan(panelToPanel, sparePanel), null);
+});
+
 test('bulk VLAN assignments validate the whole batch and preserve unrelated ports and cables', () => {
   const layout = fixtureLayout();
-  const endpoints = [18, 23, 24].map(port => ({ rackId: 'CAB-A01', equipmentId: 'PP-A04', port }));
+  const endpoints = [18, 23, 24].map(port => ({ rackId: 'CAB-A02', equipmentId: 'SW-B01', port }));
   const assigned = assignPortVlans(layout, [...endpoints, endpoints[0]], 99);
   for (const endpoint of endpoints) assert.equal(portVlan(assigned, endpoint), 99);
   assert.equal(assigned.cables, layout.cables);
@@ -289,7 +315,7 @@ test('bulk VLAN assignments validate the whole batch and preserve unrelated port
     if (!endpoints.some(ep => endpointKey(ep) === key)) assert.equal(assigned.portVlans![key], value);
   }
   const snapshot = structuredClone(assigned);
-  assert.throws(() => assignPortVlans(assigned, [...endpoints, { ...endpoints[0], port: 25 }], 60));
+  assert.throws(() => assignPortVlans(assigned, [...endpoints, { ...endpoints[0], port: 49 }], 60));
   assert.throws(() => assignPortVlans(assigned, endpoints, 4094));
   assert.deepEqual(assigned, snapshot);
   const cleared = assignPortVlans(assigned, endpoints, null);
@@ -435,7 +461,6 @@ test('saved projects validate port details, accept older files and keep equipmen
   assert.deepEqual(patchPortDetails(copied.locations[1].layout, endpoint), { facilityLocation: '', notes: '' });
   for (const [key, value] of [
     ['CAB-A01/PP-A04/25', details],
-    ['CAB-A01/SW-A01/24', details],
     [endpointKey(endpoint), null],
     [endpointKey(endpoint), { facilityLocation: 214, notes: '' }],
     [endpointKey(endpoint), { ...details, notes: 'x'.repeat(PORT_NOTES_MAX + 1) }],
@@ -447,6 +472,29 @@ test('saved projects validate port details, accept older files and keep equipmen
   }
 });
 
+
+test('individual port notes save on switches and panels without copying inherited locations', () => {
+  const project = defaultProject(defaultConfiguration(), 'metric');
+  const original = project.locations[0].layout;
+  const cable = original.cables.find(c => c.id === 'CR-0018')!;
+  const located = setPatchPortDetails(original, cable.from, { facilityLocation: 'Office 202', notes: 'Panel note' });
+  const edited = setPortNotes(located, cable.to, 'Switch note\nSecond line');
+  assert.deepEqual(edited.portDetails![endpointKey(cable.to)], { facilityLocation: '', notes: 'Switch note\nSecond line' });
+  assert.deepEqual(patchPortDetails(edited, cable.to), { facilityLocation: 'Office 202', notes: 'Switch note\nSecond line' });
+  assert.equal(patchPortDetails(edited, cable.from).notes, 'Panel note');
+  assert.equal(patchPortDetails(located, cable.to).notes, '');
+  assert.deepEqual(edited.cables, original.cables);assert.deepEqual(edited.portVlans, original.portVlans);
+  project.locations[0].layout = edited;
+  const restored = importProject(JSON.parse(JSON.stringify(project)))!;
+  assert.equal(patchPortDetails(restored.locations[0].layout, cable.to).notes, 'Switch note\nSecond line');
+  const cleared = setPortNotes(edited, cable.to, '');
+  assert.equal(cleared.portDetails![endpointKey(cable.to)], undefined);
+  assert.equal(patchPortDetails(cleared, cable.to).facilityLocation, 'Office 202');
+  const clearedPanel = setPortNotes(cleared, cable.from, '');
+  assert.deepEqual(patchPortDetails(clearedPanel, cable.from), { facilityLocation: 'Office 202', notes: '' });
+  assert.throws(() => setPortNotes(edited, cable.to, 'x'.repeat(PORT_NOTES_MAX + 1)));
+  assert.throws(() => setPortNotes(edited, { ...cable.to, port: 1000 }, 'Invalid'));
+});
 
 test('bulk port details preserve untouched fields and unselected ports and validate atomically', () => {
   const endpoint = (port: number) => ({ rackId: 'CAB-A01', equipmentId: 'PP-A04', port });
@@ -494,7 +542,7 @@ test('rack removal deletes only its equipment, connections and port metadata', (
   assert.equal(Object.keys(removed.portDetails!).some(key => key.startsWith('CAB-A01/')), false);
   for (const ep of [b, prefixNeighbor]) {
     assert.deepEqual(patchPortDetails(removed, ep), patchPortDetails(layout, ep));
-    assert.equal(portVlan(removed, ep), 99);
+    assert.equal(portVlan(removed, ep), null);
   }
   // The other end of a removed cross-cabinet cable keeps its independent VLAN.
   assert.equal(portVlan(removed, { rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 18 }), 30);
@@ -619,7 +667,7 @@ test('NetBox YAML imports physical port definitions, ranges and source names wit
   const panel = parseDeviceDefinition(readFileSync('public/equipment/netbox/24-port-copper-patch-panel.yaml', 'utf8'));
   assert.equal(panel.kind, 'patch-panel'); assert.equal(panel.ports.length, 24); assert.equal(panel.heightU, 1);
   const sw = parseDeviceDefinition(readFileSync('public/equipment/netbox/US-48.yaml', 'utf8'));
-  assert.equal(sw.ports.length, 52); assert.equal(sw.ports.filter(p => p.type === '1000base-t').length, 48);
+  assert.equal(sw.ports.length, 53); assert.equal(sw.ports.filter(p => p.type === '1000base-t').length, 48);
   const ranged = 'manufacturer: Acme\nmodel: Panel\nu_height: 1\nfront-ports:\n  - {name: "Outlet [1-24]", type: 8p8c}';
   assert.equal(parseDeviceDefinition(ranged).ports[23].name, 'Outlet 24');
   for (const invalid of [ranged.replace('u_height: 1', 'u_height: 0'), ranged.replace('model: Panel', 'model: A\nmodel: B'), ranged + '\n---\nmodel: Extra', ranged.replace('[1-24]', '[1-100000]'), ranged.replace('  - {name:', '  - &a {name:') + '\n  - *a', 'model: [']) assert.throws(() => parseDeviceDefinition(invalid));
@@ -705,7 +753,7 @@ test('equipment placement supports arbitrary port counts and whole rack heights 
 test('moves preserve and remap connected ports and documentation atomically across racks', () => {
   const ep = { rackId: 'CAB-A01', equipmentId: 'PP-A04', port: 18 };
   let layout = setPatchPortDetails(fixtureLayout(), ep, { facilityLocation: 'Room 214', notes: 'Keep this' });
-  layout = assignPortVlan(layout, ep, 99);
+  layout = assignPortVlan(layout, { rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 18 }, 99);
   // A similarly prefixed device must not have its metadata moved or removed.
   layout.racks[0].equipment.push({ ...layout.racks[0].equipment[3], id: 'PP-A040', bottomU: 17 });
   const neighbor = { ...ep, equipmentId: 'PP-A040' };
@@ -733,7 +781,7 @@ test('moves preserve and remap connected ports and documentation atomically acro
   const removed = removeEquipment(moved, target.rackId, target.equipmentId);
   assert.equal(removed.cables.length, layout.cables.length - 1);
   assert.equal(portVlan(removed, target), null);
-  assert.equal(portVlan(removed, { rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 18 }), 30);
+  assert.equal(portVlan(removed, { rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 18 }), 99);
   assert.deepEqual(patchPortDetails(removed, neighbor), patchPortDetails(layout, neighbor));
   const project = defaultProject(defaultConfiguration(), 'metric'); project.locations[0].layout = moved;
   assert.deepEqual(importProject(JSON.parse(JSON.stringify(project))), migrateFacilityLocations(project));
@@ -807,9 +855,9 @@ test('a single port numbered zero supports notes, VLANs, connections, appearance
   const ep = { rackId: 'CAB-A01', equipmentId: 'PP-ZERO', port: 0 };
   let layout = addEquipment(projectLayout(project, 'idf-01'), { rackId: ep.rackId, templateId: template.id, id: ep.equipmentId, label: 'Only port zero', bottomU: 17, portStart: 0 });
   assert.throws(() => resolveEndpoint(layout, { ...ep, port: 1 }));
-  layout = assignPortVlans(layout, [ep], 99);
+  layout = assignPortVlans(layout, [{ rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 1 }], 99);
   layout = updatePatchPortsDetails(layout, [ep], { facilityLocation: 'Room zero', notes: 'Keep the first socket' });
-  const cable = { id: 'FIRST-ZERO', from: ep, to: { rackId: 'CAB-A02', equipmentId: 'PP-B01', port: 1 }, vlan: 99, jacket: '#159de7' };
+  const cable = { id: 'FIRST-ZERO', from: ep, to: { rackId: 'CAB-A02', equipmentId: 'SW-B01', port: 1 }, vlan: 99, jacket: '#159de7' };
   assert.equal(connectionError(layout, cable), null);
   layout = { ...layout, cables: [...layout.cables, cable] };
   layout = setEquipmentTemplate(layout, ep.rackId, ep.equipmentId, null);
@@ -853,7 +901,7 @@ test('template numbering is inherited and editing it remaps all locations withou
   const changed = projectLayout(project, 'idf-01');
   assert.equal(patchPortDetails(changed, { ...ep, port: 0 }).notes, 'First socket');
   assert.equal(patchPortDetails(changed, { ...ep, port: 23 }).notes, 'Last socket');
-  assert.equal(portVlan(changed, { ...ep, port: 23 }), 99);
+  assert.equal(portVlan(changed, { ...ep, port: 23 }), null);
   assert.equal(changed.portDetails![endpointKey(ep)], undefined);
   for (let i = 0; i < changed.cables.length; i++) {
     for (const side of ['from', 'to'] as const) {
@@ -1015,7 +1063,7 @@ test('custom ranges preserve every socket and record even when old and new range
       assert.deepEqual(portPoint(next, numbered, ['CAB-A01', 'CAB-A02']), portPoint(layout, endpoint, ['CAB-A01', 'CAB-A02']));
       assert.deepEqual(patchPortDetails(next, numbered), patchPortDetails(layout, endpoint));
       assert.deepEqual(getPortMedia(next, numbered), getPortMedia(layout, endpoint));
-      assert.equal(portVlan(next, numbered), 99);
+      assert.equal(portVlan(next, numbered), null);
     }
     assert.equal(next.cables[0].from.port, start); assert.equal(next.cables[0].to.port, start + 1);
     assert.equal(next.cables[1].from.port, start + 17); assert.equal(next.cables[1].to.port, 1);
@@ -1080,7 +1128,7 @@ test('facility locations migrate free text, rename across archived views and pro
   assert.equal(patchPortDetails(cleared.locations[0].layout, panel).notes, 'Outlet W18');
 });
 
-test('facility assignment batches work without cables on panels and switches, preserve metadata, and follow moves and ranges', () => {
+test('facility assignment batches edit panels while switches inherit across moves and ranges', () => {
   const catalog = [{ name: 'Lab', color: '#159de7' }];
   const panel = { rackId: 'CAB-A01', equipmentId: 'PP-A04', port: 24 };
   const switchPort = { rackId: 'CAB-A01', equipmentId: 'SW-A01', port: 48 };
@@ -1093,6 +1141,9 @@ test('facility assignment batches work without cables on panels and switches, pr
   assert.deepEqual(layout.cables, before.cables);
   assert.deepEqual(layout.portVlans, before.portVlans);
   assert.equal(patchPortDetails(layout, panel).notes, 'Keep this note');
+  assert.equal(patchPortDetails(layout, switchPort).facilityLocation, '');
+  layout = { ...layout, cables: [...layout.cables, { id: 'CBL-0001', from: switchPort, to: panel, vlan: 10, jacket: '#159de7' }] };
+  assert.equal(patchPortDetails(layout, switchPort).facilityLocation, 'Lab');
   const project = defaultProject({ ...defaultConfiguration(), facilityLocations: catalog }, 'metric');
   project.locations[0].layout = layout;
   assert.deepEqual(parseProject(project), project);
@@ -1107,11 +1158,32 @@ test('facility assignment batches work without cables on panels and switches, pr
   assert.equal(patchPortDetails(layout, panel).facilityLocation, 'Lab');
 });
 
+test('switch locations follow the directly connected panel, ignoring old switch locations and panel notes', () => {
+  let layout = fixtureLayout();
+  const cable = layout.cables.find(c => c.id === 'CR-0018')!;
+  const panel = cable.from, switchPort = cable.to;
+  const secondPanel = { rackId: 'CAB-A01', equipmentId: 'PP-A04', port: 24 };
+  const otherSwitch = { rackId: 'CAB-A01', equipmentId: 'SW-A01', port: 48 };
+  layout.portDetails = { [endpointKey(switchPort)]: { facilityLocation: 'Old location', notes: '' } };
+  layout = setPatchPortDetails(layout, panel, { facilityLocation: 'Office 202', notes: 'Panel notes' });
+  layout = setPatchPortDetails(layout, secondPanel, { facilityLocation: 'COM B', notes: '' });
+  assert.deepEqual(patchPortDetails(layout, switchPort), { facilityLocation: 'Office 202', notes: '' });
+  assert.ok(portMatchesFilters(layout, switchPort, { vlans: [], locations: ['Office 202'] }));
+  const repatched = { ...layout, cables: layout.cables.map(c => c.id === cable.id ? { ...c, from: switchPort, to: secondPanel } : c) };
+  assert.equal(patchPortDetails(repatched, switchPort).facilityLocation, 'COM B');
+  const cleared = setPatchPortDetails(repatched, secondPanel, { facilityLocation: '', notes: '' });
+  assert.equal(patchPortDetails(cleared, switchPort).facilityLocation, '');
+  const disconnected = { ...layout, cables: layout.cables.filter(c => c.id !== cable.id) };
+  assert.equal(patchPortDetails(disconnected, switchPort).facilityLocation, '');
+  const switchToSwitch = { ...layout, cables: layout.cables.map(c => c.id === cable.id ? { ...c, from: otherSwitch } : c) };
+  assert.equal(patchPortDetails(switchToSwitch, switchPort).facilityLocation, '');
+});
+
 test('location cable filters match either endpoint once, independently of VLAN assignments', () => {
   const catalog = [{ name: 'Office', color: '#159de7' }];
   const layout = fixtureLayout();
   const cable = layout.cables.find(c => c.id === 'CR-0018')!;
-  for (const endpoints of [[cable.from], [cable.to], [cable.from, cable.to]]) {
+  for (const endpoints of [[cable.from], [cable.from, cable.to]]) {
     const assigned = assignPortLocations(layout, endpoints, 'Office', catalog);
     assert.deepEqual(assigned.cables.filter(c => cableAtLocation(assigned, c, 'Office')).map(c => c.id), ['CR-0018']);
   }
@@ -1151,10 +1223,14 @@ test('view filters combine VLAN and location matches with OR and show no outline
   const blank = { ...spare, port: 23 };
   assert.ok(portMatchesFilters(layout, blank, { vlans: [null], locations: [''] }));
   assert.equal(locationOutlineColor(layout, blank, { vlans: [], locations: [''] }, catalog), '#91a4b5');
-  // Cable VLANs and port VLANs remain independent when filtering.
-  layout = assignPortVlan(layout, ten.from, 99);
-  assert.ok(cableMatchesFilters(layout, ten, { vlans: [10], locations: [] }));
+  // Cables follow their connected switch's current VLAN, including clearing it.
+  layout = assignPortVlan(layout, ten.to, 99);
+  assert.ok(!cableMatchesFilters(layout, ten, { vlans: [10], locations: [] }));
+  assert.ok(cableMatchesFilters(layout, ten, { vlans: [99], locations: [] }));
   assert.ok(!portMatchesFilters(layout, ten.from, { vlans: [10], locations: [] }));
+  layout = assignPortVlan(layout, ten.to, null);
+  assert.ok(cableMatchesFilters(layout, ten, { vlans: [null], locations: [] }));
+  assert.ok(!cableMatchesFilters(layout, ten, { vlans: [99], locations: [] }));
 });
 
 test('connection data honors custom ranges, frame calibration, shared stock and independent port VLANs', () => {
@@ -1164,7 +1240,7 @@ test('connection data honors custom ranges, frame calibration, shared stock and 
   frame.layout.racks[0].label = 'Core rack';
   frame.layout = setEquipmentPortStart(frame.layout, cable.from.rackId, cable.from.equipmentId, 101);
   const from = frame.layout.cables[0].from;
-  frame.layout.portVlans![endpointKey(from)] = 99;
+  frame.layout.portVlans![endpointKey(cable.to)] = 99;
   frame.layout.portDetails = { [endpointKey(from)]: { facilityLocation: 'Room 101', notes: 'Review outlet' } };
   project.configuration.stockedLengthsM = [100];
   project.locations.push({ ...structuredClone(frame), id: 'second', name: 'Second frame', calibration: { ...frame.calibration, slackM: frame.calibration.slackM + 10 } });
@@ -1239,7 +1315,7 @@ test('inventory preserves port zero, mapped interface names and unconnected VLAN
   assert.equal(port.sourceInterface, 'front/0');
   assert.equal(port.status, 'Available');
   assert.equal(port.peer, '');
-  assert.equal(port.vlan, '99 — Servers');
+  assert.equal(port.vlan, 'Unassigned');
   assert.equal(port.notes, 'Spare fiber');
   assert.match(port.media, /Fiber port.*LC.*Single-mode/);
   assert.equal(rows.filter(row => row.equipmentKey === port.equipmentKey).length, template.portCount);
@@ -1384,4 +1460,23 @@ test('stack project validation rejects invalid references, duplicate members, an
   const current = projectLayout(project, 'idf-01'), equipment = current.racks[0].equipment.find(e => e.id === 'SW-002')!;
   assert.deepEqual([0, 1, 2, 3, 4].map(port => interfaceName(current, equipment, port)), ['xe-1/2/3:1', 'et-1/1/0', 'mge-1/0/5', 'me0', 'Ethernet1/23']);
   assert.equal(project.templates![0].ports[0].name, 'xe-0/2/3:1');
+});
+
+test('distribution frame port prefixes save, edit, clear and round-trip without changing layouts',()=>{
+  const original=defaultProject(defaultConfiguration(),'imperial');
+  const draft={name:'IDF-01',type:'IDF' as const,building:'Building A',floor:'',room:'Network closet',notes:'',portPrefix:' B '};
+  const changed=upsertLocation(original,draft,'idf-01');
+  assert.equal(changed.locations[0].portPrefix,'B');
+  assert.deepEqual(changed.locations[0].layout,original.locations[0].layout);
+  assert.equal(parseProject(JSON.parse(JSON.stringify(changed)))!.locations[0].portPrefix,'B');
+  const mdf=upsertLocation(changed,{...draft,name:'MDF B',type:'MDF',portPrefix:'M-'});
+  assert.equal(mdf.locations[1].portPrefix,'M-');
+  const renamed=upsertLocation(changed,{...draft,portPrefix:undefined,name:'Renamed IDF'},'idf-01');
+  assert.equal(renamed.locations[0].portPrefix,'B');
+  assert.equal(upsertLocation(changed,{...draft,portPrefix:''},'idf-01').locations[0].portPrefix,undefined);
+  assert.ok(parseProject(original));
+  for(const portPrefix of ['a b','<B>','B'.repeat(21)]){
+    assert.throws(()=>upsertLocation(original,{...draft,portPrefix},'idf-01'),/Port prefix/);
+    assert.equal(parseProject({...original,locations:[{...original.locations[0],portPrefix}]}),null);
+  }
 });

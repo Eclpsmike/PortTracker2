@@ -1,10 +1,11 @@
 import { useRef, useState, type PointerEvent, type MouseEvent } from 'react';
 import { type Endpoint, type Layout, portNumbers } from '../model';
+import { portFace } from '../equipmentTemplates';
 import { portPoint } from '../geometry';
 
 export type RackSelectionBox = { x: number; y: number; width: number; height: number };
-export function useRackDragSelection({ layout, rackIds, touchEnabled, onSelect }: {
-  layout: Layout; rackIds: string[]; touchEnabled: boolean;
+export function useRackDragSelection({ layout, rackIds, face = 'front', touchEnabled, onSelect }: {
+  layout: Layout; rackIds: string[]; face?: 'front' | 'rear'; touchEnabled: boolean;
   onSelect: (ports: Endpoint[], additive: boolean, preferredDevice?: string) => void;
 }) {
   const [box, setBox] = useState<RackSelectionBox | null>(null);
@@ -47,6 +48,7 @@ export function useRackDragSelection({ layout, rackIds, touchEnabled, onSelect }
         if (p) {
           const left = Math.min(d.x, p.x), right = Math.max(d.x, p.x), top = Math.min(d.y, p.y), bottom = Math.max(d.y, p.y);
           const hits = layout.racks.filter(r => rackIds.includes(r.id)).flatMap(r => r.equipment.flatMap(e => portNumbers(e).flatMap(port => {
+            if (portFace(e, port, layout.templates) !== face) return [];
             const ep = { rackId: r.id, equipmentId: e.id, port }, center = portPoint(layout, ep, rackIds);
             return center.x >= left && center.x <= right && center.y >= top && center.y <= bottom ? [{ ep, distance: Math.hypot(center.x - d.x, center.y - d.y) }] : [];
           })));
